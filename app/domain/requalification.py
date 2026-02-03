@@ -1,0 +1,2 @@
+class Requalification:
+    pass

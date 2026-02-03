@@ -1,0 +1,2 @@
+class ReponseEntretien:
+    pass
