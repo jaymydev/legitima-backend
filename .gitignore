@@ -8,3 +8,5 @@ __pycache__/
 
 # macOS
 .DS_Storetest_payload.json
+.DS_Store
+app/.DS_Store
