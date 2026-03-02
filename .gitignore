@@ -7,4 +7,4 @@ __pycache__/
 .env
 
 # macOS
-.DS_Store
+.DS_Storetest_payload.json
