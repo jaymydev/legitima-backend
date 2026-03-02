@@ -40,6 +40,18 @@ All fields are strings.
 You must not invent data.
 You must not reformulate the input JSON.
 You must analyze it.
+You are strictly forbidden from adding any field not explicitly listed in the OUTPUT structure.
+Any deviation invalidates the response.
+
+STRICT SEPARATION RULE:
+
+The OUTPUT structure is independent from INPUT.
+You must not reuse or mirror any INPUT field names.
+You must not echo INPUT section names.
+You must not add any field derived from INPUT keys.
+
+Only the fields explicitly listed in the OUTPUT structure are allowed.
+No others.
 
 STRICT OUTPUT CONTRACT:
 You must return ONLY a JSON object.
