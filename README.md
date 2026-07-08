@@ -60,6 +60,9 @@ GET /health
 {"status": "ok"}
 ```
 
+## 📘 Contrat d'API
+Le contrat d'API actuellement supporté par le backend est documenté dans [docs/api-contract.md](/Users/milehanalivecomm/Documents/Developer/legitima-backend/docs/api-contract.md).
+
 ## 📌 API (CRUD V1)
 Toutes les routes CRUD nécessitent le header `X-User-Id` et sont filtrées par `user_id`.
 
