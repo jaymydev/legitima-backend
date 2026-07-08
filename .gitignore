@@ -1,12 +1,19 @@
-# Python
-.venv/
-__pycache__/
-*.pyc
-
 # Environment
 .env
 
+# Python
+.venv/
+__pycache__/
+.pytest_cache/
+*.pyc
+*.pyo
+*.pyd
+
+# IDE / editor
+.idea/
+.vscode/
+*.swp
+*.swo
+
 # macOS
-.DS_Storetest_payload.json
 .DS_Store
-app/.DS_Store
