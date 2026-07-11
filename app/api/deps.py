@@ -1,5 +1,8 @@
+from __future__ import annotations
+
 from fastapi import Header, HTTPException
 from supabase import Client, create_client
+from typing import Optional
 
 from app.config.settings import settings
 
@@ -10,7 +13,7 @@ def get_supabase_client() -> Client:
     return create_client(settings.supabase_url, settings.supabase_anon_key)
 
 
-def get_user_id(x_user_id: str | None = Header(default=None, alias="X-User-Id")) -> str:
+def get_user_id(x_user_id: Optional[str] = Header(default=None, alias="X-User-Id")) -> str:
     if not x_user_id:
         raise HTTPException(status_code=400, detail="X-User-Id header is required")
     return x_user_id

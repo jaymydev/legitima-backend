@@ -1,3 +1,7 @@
+from __future__ import annotations
+
+from typing import Optional
+
 from supabase import Client
 
 from app.observability.logging import logger
@@ -15,7 +19,7 @@ def fetch_list(client: Client, table_name: str, user_id: str) -> list[dict]:
         raise
 
 
-def fetch_one(client: Client, table_name: str, record_id: str, user_id: str) -> dict | None:
+def fetch_one(client: Client, table_name: str, record_id: str, user_id: str) -> Optional[dict]:
     try:
         response = (
             client.table(table_name)
@@ -52,7 +56,7 @@ def update_one(
     record_id: str,
     user_id: str,
     payload: dict,
-) -> dict | None:
+) -> Optional[dict]:
     try:
         response = (
             client.table(table_name)
@@ -71,7 +75,7 @@ def update_one(
         raise
 
 
-def delete_one(client: Client, table_name: str, record_id: str, user_id: str) -> dict | None:
+def delete_one(client: Client, table_name: str, record_id: str, user_id: str) -> Optional[dict]:
     try:
         response = (
             client.table(table_name)

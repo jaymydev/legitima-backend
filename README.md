@@ -4,6 +4,7 @@ Backend initialisé (ultra safe) pour le produit **Legitima**.
 
 ## ✅ Ce que fournit ce squelette
 - FastAPI opérationnel avec un endpoint de santé.
+- Un endpoint transitoire `POST /analyze` pour le flux iOS onboarding -> analyse -> résultat.
 - Structure modulaire alignée sur les concepts métiers.
 - Endpoints CRUD V1 pour les objets métiers (scopés par `user_id`).
 - Gestion d'erreurs centralisée (scaffold) + logging minimal.
@@ -25,9 +26,11 @@ Variables d’environnement attendues (placeholders) :
 
 ## 🚫 Ce qui est intentionnellement NON implémenté (V1)
 - Aucune logique métier.
-- Aucune orchestration IA.
 - Aucune gestion d’authentification côté backend (pas de login/signup, pas de JWT).
 - Aucun contrôle d’accès avancé (seulement filtrage par `user_id`).
+
+Exception transitoire :
+- `POST /analyze` est supporté pour stabiliser le flux V1 frontend actuel, mais ce n’est pas le design cible long terme.
 
 ## 📁 Arborescence (résumé)
 ```
@@ -64,6 +67,13 @@ GET /health
 Le contrat d'API actuellement supporté par le backend est documenté dans [docs/api-contract.md](/Users/milehanalivecomm/Documents/Developer/legitima-backend/docs/api-contract.md).
 
 Ce document fait foi pour le V1 backend. Toute route non montée dans [app/main.py](/Users/milehanalivecomm/Documents/Developer/legitima-backend/app/main.py) et non documentée dans ce contrat doit être considérée comme non supportée par le frontend.
+
+## 🤖 Analyse V1 transitoire
+Le backend supporte aussi `POST /analyze` comme endpoint transitoire officiel pour le flux iOS actuel `onboarding -> analyse -> résultat`.
+
+- Il nécessite `OPENAI_API_KEY` côté backend.
+- Son contrat exact est documenté dans [docs/api-contract.md](/Users/milehanalivecomm/Documents/Developer/legitima-backend/docs/api-contract.md).
+- Il est destiné à être remplacé plus tard par des endpoints métier plus explicites.
 
 ## 📌 API (CRUD V1)
 Toutes les routes CRUD nécessitent le header `X-User-Id` et sont filtrées par `user_id`.
