@@ -63,6 +63,8 @@ GET /health
 ## 📘 Contrat d'API
 Le contrat d'API actuellement supporté par le backend est documenté dans [docs/api-contract.md](/Users/milehanalivecomm/Documents/Developer/legitima-backend/docs/api-contract.md).
 
+Ce document fait foi pour le V1 backend. Toute route non montée dans [app/main.py](/Users/milehanalivecomm/Documents/Developer/legitima-backend/app/main.py) et non documentée dans ce contrat doit être considérée comme non supportée par le frontend.
+
 ## 📌 API (CRUD V1)
 Toutes les routes CRUD nécessitent le header `X-User-Id` et sont filtrées par `user_id`.
 

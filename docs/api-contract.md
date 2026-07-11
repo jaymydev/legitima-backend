@@ -6,6 +6,8 @@ This document describes the API endpoints currently implemented in the FastAPI b
 
 It documents the current V1 scaffold only. No additional endpoints are part of the official contract unless they are mounted in the backend.
 
+This file is the backend API source of truth for the current V1 scaffold.
+
 ## Base URL
 
 Local development:
@@ -356,6 +358,14 @@ Record shape:
 
 The frontend must not call `POST /analyze` until that endpoint is added to the backend and then added to this official API contract.
 
+### Legacy implementation note
+
+The repository contains an isolated `POST /analyze` handler in [app/minimal_ai.py](/Users/milehanalivecomm/Documents/Developer/legitima-backend/app/minimal_ai.py).
+
+That file is not mounted by [app/main.py](/Users/milehanalivecomm/Documents/Developer/legitima-backend/app/main.py), is not part of the FastAPI application currently run with `uvicorn app.main:app --reload`, and is therefore not part of the official backend contract.
+
+Until a route is explicitly mounted in the main application and documented here, it must be treated as unsupported by the frontend.
+
 ## Known limitations
 
 - The backend currently exposes only scaffold CRUD operations plus `GET /health`.
@@ -364,5 +374,5 @@ The frontend must not call `POST /analyze` until that endpoint is added to the b
 - JWTs are not validated or decoded by the backend in V1.
 - If `SUPABASE_URL` or `SUPABASE_ANON_KEY` is missing, CRUD routes return `500` with `{"detail":"Supabase is not configured"}`.
 - Persistence errors from Supabase are not normalized into a dedicated public error contract yet.
-- No `POST /analyze` route exists.
+- No `POST /analyze` route is mounted in the official backend application.
 - No AI orchestration is part of the current backend contract.
