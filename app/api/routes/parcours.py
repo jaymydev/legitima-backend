@@ -1,6 +1,9 @@
-from fastapi import APIRouter, Depends, HTTPException, status
+from __future__ import annotations
+
+from fastapi import APIRouter, Depends, HTTPException, Response, status
 from pydantic import BaseModel
 from supabase import Client
+from typing import Optional
 
 from app.api.deps import get_supabase_client, get_user_id
 from app.persistence.supabase import delete_one, fetch_list, fetch_one, insert_one, update_one
@@ -15,7 +18,7 @@ class ParcoursCreate(BaseModel):
 
 
 class ParcoursUpdate(BaseModel):
-    name: str | None = None
+    name: Optional[str] = None
 
 
 class ParcoursRecord(BaseModel):
@@ -75,7 +78,12 @@ def update_parcours(
     return ParcoursRecord(**record)
 
 
-@router.delete("/{parcours_id}", status_code=status.HTTP_204_NO_CONTENT)
+@router.delete(
+    "/{parcours_id}",
+    status_code=status.HTTP_204_NO_CONTENT,
+    response_class=Response,
+    response_model=None,
+)
 def delete_parcours(
     parcours_id: str,
     user_id: str = Depends(get_user_id),

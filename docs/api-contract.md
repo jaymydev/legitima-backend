@@ -44,6 +44,111 @@ Response `200`
 }
 ```
 
+## Transitional AI endpoint
+
+### `POST /analyze`
+
+`POST /analyze` is an officially supported transitional V1 endpoint for the current iOS flow:
+
+`onboarding -> analyze -> result`
+
+It is supported to stabilize the current product flow and TestFlight preparation, but it is not the target long-term backend design.
+
+Required headers:
+
+- `Content-Type: application/json`
+
+Environment requirement:
+
+- `OPENAI_API_KEY` must be configured on the backend
+
+Request body:
+
+```json
+{
+  "input": {
+    "meta": {
+      "version": "1.0",
+      "language": "fr",
+      "target_market": "US",
+      "interview_type": "recruitment"
+    },
+    "narrative_positioning": {
+      "short_summary": "string",
+      "current_positioning": "string",
+      "evolution_logic": "string"
+    }
+  }
+}
+```
+
+Input contract notes:
+
+- `input.meta` is required
+- `input.narrative_positioning` is required
+- all fields shown above are required strings
+- additional top-level fields are not part of the current official contract
+- additional nested fields are not part of the current official contract
+
+Response `200`
+
+```json
+{
+  "analysis": {
+    "strategic_reading": "string",
+    "dominant_competencies": "string",
+    "career_logic": "string"
+  },
+  "sensitive_reframing": {
+    "identified_fragilities": "string",
+    "strategic_reinterpretation": "string",
+    "rational_reframing": "string"
+  },
+  "narrative": {
+    "core_thread": "string",
+    "positioning_statement": "string"
+  },
+  "interview_preparation": {
+    "probable_objections": "string",
+    "structured_answers": "string"
+  },
+  "legitimacy_anchor": {
+    "objective_strength": "string",
+    "final_alignment_statement": "string"
+  }
+}
+```
+
+Validation response `422`
+
+FastAPI validation errors are returned in the standard `detail` array format.
+
+Example:
+
+```json
+{
+  "detail": [
+    {
+      "msg": "Field required"
+    }
+  ]
+}
+```
+
+Backend error response `500`
+
+Possible current `detail` values include:
+
+- `OPENAI_API_KEY environment variable is missing`
+- `OpenAI API call failed: ...`
+- `OpenAI response did not contain content`
+- `Failed to parse model response as JSON: ...`
+- `Parsed model response is not a JSON object`
+
+Model validation response `422`
+
+If the OpenAI response does not match the documented output schema, the backend returns a `422` validation error.
+
 ## CRUD resource pattern
 
 The following resource groups are mounted:
@@ -350,29 +455,16 @@ Record shape:
 }
 ```
 
-## Explicitly unsupported endpoint
-
-### `POST /analyze`
-
-`POST /analyze` is not currently implemented in the backend.
-
-The frontend must not call `POST /analyze` until that endpoint is added to the backend and then added to this official API contract.
-
-### Legacy implementation note
-
-The repository contains an isolated `POST /analyze` handler in [app/minimal_ai.py](/Users/milehanalivecomm/Documents/Developer/legitima-backend/app/minimal_ai.py).
-
-That file is not mounted by [app/main.py](/Users/milehanalivecomm/Documents/Developer/legitima-backend/app/main.py), is not part of the FastAPI application currently run with `uvicorn app.main:app --reload`, and is therefore not part of the official backend contract.
-
-Until a route is explicitly mounted in the main application and documented here, it must be treated as unsupported by the frontend.
-
 ## Known limitations
 
-- The backend currently exposes only scaffold CRUD operations plus `GET /health`.
+- The backend currently exposes `GET /health`, the transitional `POST /analyze` endpoint, and scaffold CRUD operations.
+- `POST /analyze` is an officially supported transitional endpoint, not the target long-term API shape.
 - The route-level request and response schemas are simple `name`-based payloads; domain-specific fields are not implemented yet.
 - CRUD ownership is based only on the `X-User-Id` header value supplied by the client.
 - JWTs are not validated or decoded by the backend in V1.
 - If `SUPABASE_URL` or `SUPABASE_ANON_KEY` is missing, CRUD routes return `500` with `{"detail":"Supabase is not configured"}`.
+- If `OPENAI_API_KEY` is missing, `POST /analyze` returns `500`.
 - Persistence errors from Supabase are not normalized into a dedicated public error contract yet.
-- No `POST /analyze` route is mounted in the official backend application.
-- No AI orchestration is part of the current backend contract.
+- `POST /analyze` currently depends directly on a synchronous OpenAI API call.
+- The current `/analyze` request schema is intentionally narrow and only covers the payload used by the current iOS flow.
+- The current `/analyze` response is a single aggregated structure consumed by the frontend and will likely be replaced later by more explicit domain endpoints.
