@@ -87,6 +87,7 @@ Input contract notes:
 - `input.meta` is required
 - `input.narrative_positioning` is required
 - all fields shown above are required strings
+- `input.meta.language` currently supports only `fr`
 - additional top-level fields are not part of the current official contract
 - additional nested fields are not part of the current official contract
 
@@ -119,6 +120,14 @@ Response `200`
 }
 ```
 
+Language behavior:
+
+- for the current V1 contract, the backend supports only `input.meta.language = "fr"`
+- all response sections are generated in French
+- mixed French/English output is considered invalid for this endpoint
+- if the first model response contains English content, the backend retries once with a stricter French-only instruction
+- if French-only output is still not achieved, the backend returns an error instead of returning a mixed-language payload
+
 Validation response `422`
 
 FastAPI validation errors are returned in the standard `detail` array format.
@@ -135,6 +144,18 @@ Example:
 }
 ```
 
+Unsupported language example:
+
+```json
+{
+  "detail": [
+    {
+      "msg": "Value error, Only French output is currently supported for /analyze"
+    }
+  ]
+}
+```
+
 Backend error response `500`
 
 Possible current `detail` values include:
@@ -144,6 +165,7 @@ Possible current `detail` values include:
 - `OpenAI response did not contain content`
 - `Failed to parse model response as JSON: ...`
 - `Parsed model response is not a JSON object`
+- `Model response did not satisfy the French-only output requirement`
 
 Model validation response `422`
 
@@ -468,3 +490,4 @@ Record shape:
 - `POST /analyze` currently depends directly on a synchronous OpenAI API call.
 - The current `/analyze` request schema is intentionally narrow and only covers the payload used by the current iOS flow.
 - The current `/analyze` response is a single aggregated structure consumed by the frontend and will likely be replaced later by more explicit domain endpoints.
+- The current backend guarantees reliable support only for French output on `/analyze`.
