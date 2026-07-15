@@ -72,6 +72,7 @@ Ce document fait foi pour le V1 backend. Toute route non montée dans [app/main.
 Le backend supporte aussi `POST /analyze` comme endpoint transitoire officiel pour le flux iOS actuel `onboarding -> analyse -> résultat`.
 
 - Il nécessite `OPENAI_API_KEY` côté backend.
+- Il supporte actuellement de manière fiable uniquement la sortie en français.
 - Son contrat exact est documenté dans [docs/api-contract.md](/Users/milehanalivecomm/Documents/Developer/legitima-backend/docs/api-contract.md).
 - Il est destiné à être remplacé plus tard par des endpoints métier plus explicites.
 

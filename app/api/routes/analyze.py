@@ -1,9 +1,13 @@
 import json
 import os
+import re
+from typing import Iterable
 
 from fastapi import APIRouter, HTTPException
 from openai import OpenAI
-from pydantic import BaseModel, ConfigDict, ValidationError
+from pydantic import BaseModel, ConfigDict, ValidationError, field_validator
+
+from app.observability.logging import logger
 
 router = APIRouter()
 
@@ -40,6 +44,12 @@ You must not reformulate the input JSON.
 You must analyze it.
 You are strictly forbidden from adding any field not explicitly listed in the OUTPUT structure.
 Any deviation invalidates the response.
+
+OUTPUT LANGUAGE RULE:
+- The requested output language is determined by `input.meta.language`.
+- If `input.meta.language` is `fr`, every output field must be written strictly in French.
+- Do not include English words, English headings, or mixed French/English phrasing.
+- If a concept can be expressed in French, express it in French.
 
 STRICT SEPARATION RULE:
 
@@ -93,10 +103,13 @@ TONE:
 - Structured
 - Rational
 - Professional
-- Argumentative
-- Non-emotional
+- Clear
+- Grounded
+- Reassuring without exaggeration
+- Non-judgmental
+- Avoid unnecessary jargon
 - No inspiration
-- No encouragement
+- No empty encouragement
 - No coaching tone
 
 If information is insufficient:
@@ -107,6 +120,40 @@ If information is insufficient:
 If output deviates from structure, the response is invalid.
 """
 
+FRENCH_RETRY_PROMPT = """
+The previous answer did not satisfy the output language rule.
+
+Return the same JSON structure again, but every value must be written strictly in French.
+Do not include English words.
+Do not change the schema.
+Do not add fields.
+Do not remove fields.
+"""
+
+ENGLISH_MARKERS = (
+    "the",
+    "and",
+    "with",
+    "for",
+    "strong",
+    "skills",
+    "experience",
+    "interview",
+    "candidate",
+    "role",
+    "leadership",
+    "career",
+    "technical",
+    "summary",
+    "narrative",
+    "positioning",
+    "alignment",
+    "core",
+    "thread",
+)
+
+ANALYZE_MODEL = "gpt-4o-mini"
+
 
 class AnalyzeMeta(BaseModel):
     model_config = ConfigDict(extra="forbid")
@@ -114,6 +161,14 @@ class AnalyzeMeta(BaseModel):
     language: str
     target_market: str
     interview_type: str
+
+    @field_validator("language")
+    @classmethod
+    def validate_language(cls, value: str) -> str:
+        normalized = value.strip().lower()
+        if normalized != "fr":
+            raise ValueError("Only French output is currently supported for /analyze")
+        return normalized
 
 
 class NarrativePositioningInput(BaseModel):
@@ -175,39 +230,116 @@ class AnalyzeResponseV1(BaseModel):
     legitimacy_anchor: LegitimacyAnchorSectionV1
 
 
-@router.post("/analyze", response_model=AnalyzeResponseV1, tags=["Analyze"])
-def analyze(payload: AnalyzeRequest) -> AnalyzeResponseV1:
-    api_key = os.environ.get("OPENAI_API_KEY")
-    if not api_key:
-        raise HTTPException(status_code=500, detail="OPENAI_API_KEY environment variable is missing")
+def _build_messages(payload: AnalyzeInputV1, retry_for_french: bool = False) -> list[dict[str, str]]:
+    messages = [
+        {"role": "system", "content": SYSTEM_PROMPT_V1},
+        {"role": "user", "content": json.dumps(payload.model_dump())},
+    ]
+    if retry_for_french:
+        messages.insert(1, {"role": "system", "content": FRENCH_RETRY_PROMPT})
+    return messages
 
-    client = OpenAI(api_key=api_key)
 
-    try:
-        completion = client.chat.completions.create(
-            model="gpt-4o-mini",
-            messages=[
-                {"role": "system", "content": SYSTEM_PROMPT_V1},
-                {"role": "user", "content": json.dumps(payload.input.model_dump())},
-            ],
-            response_format={"type": "json_object"},
-        )
-    except Exception as exc:
-        raise HTTPException(status_code=500, detail=f"OpenAI API call failed: {exc}") from exc
-
-    content = completion.choices[0].message.content if completion.choices else None
-    if not content:
-        raise HTTPException(status_code=500, detail="OpenAI response did not contain content")
-
+def _parse_analysis_response(content: str) -> AnalyzeResponseV1:
     try:
         parsed = json.loads(content)
     except Exception as exc:
+        logger.warning("Analyze parse failure reason=invalid_json")
         raise HTTPException(status_code=500, detail=f"Failed to parse model response as JSON: {exc}") from exc
 
     if not isinstance(parsed, dict):
+        logger.warning("Analyze parse failure reason=not_json_object")
         raise HTTPException(status_code=500, detail="Parsed model response is not a JSON object")
 
     try:
         return AnalyzeResponseV1.model_validate(parsed)
     except ValidationError as exc:
+        logger.warning("Analyze validation failure reason=invalid_response_schema")
         raise HTTPException(status_code=422, detail=exc.errors()) from exc
+
+
+def _iter_response_strings(response: AnalyzeResponseV1) -> Iterable[str]:
+    data = response.model_dump()
+    for section in data.values():
+        for value in section.values():
+            yield value
+
+
+def _contains_english_markers(text: str) -> bool:
+    lowered = text.lower()
+    matches = sum(1 for marker in ENGLISH_MARKERS if re.search(rf"\b{re.escape(marker)}\b", lowered))
+    return matches >= 2
+
+
+def _is_strictly_french_response(response: AnalyzeResponseV1) -> bool:
+    return not any(_contains_english_markers(value) for value in _iter_response_strings(response))
+
+
+def _generate_analysis(
+    client: OpenAI,
+    payload: AnalyzeInputV1,
+    retry_for_french: bool = False,
+) -> AnalyzeResponseV1:
+    attempt = "retry_french" if retry_for_french else "initial"
+    try:
+        completion = client.chat.completions.create(
+            model=ANALYZE_MODEL,
+            messages=_build_messages(payload, retry_for_french=retry_for_french),
+            response_format={"type": "json_object"},
+        )
+    except Exception as exc:
+        logger.exception(
+            "Analyze OpenAI call failed attempt=%s language=%s target_market=%s interview_type=%s",
+            attempt,
+            payload.meta.language,
+            payload.meta.target_market,
+            payload.meta.interview_type,
+        )
+        raise HTTPException(status_code=500, detail=f"OpenAI API call failed: {exc}") from exc
+
+    content = completion.choices[0].message.content if completion.choices else None
+    if not content:
+        logger.warning(
+            "Analyze empty model response attempt=%s language=%s target_market=%s interview_type=%s",
+            attempt,
+            payload.meta.language,
+            payload.meta.target_market,
+            payload.meta.interview_type,
+        )
+        raise HTTPException(status_code=500, detail="OpenAI response did not contain content")
+
+    return _parse_analysis_response(content)
+
+
+@router.post("/analyze", response_model=AnalyzeResponseV1, tags=["Analyze"])
+def analyze(payload: AnalyzeRequest) -> AnalyzeResponseV1:
+    api_key = os.environ.get("OPENAI_API_KEY")
+    if not api_key:
+        logger.warning("Analyze rejected reason=missing_openai_api_key")
+        raise HTTPException(status_code=500, detail="OPENAI_API_KEY environment variable is missing")
+
+    logger.info(
+        "Analyze request started language=%s target_market=%s interview_type=%s model=%s",
+        payload.input.meta.language,
+        payload.input.meta.target_market,
+        payload.input.meta.interview_type,
+        ANALYZE_MODEL,
+    )
+    client = OpenAI(api_key=api_key)
+
+    response = _generate_analysis(client, payload.input)
+    if _is_strictly_french_response(response):
+        logger.info("Analyze request succeeded retried_for_french=false")
+        return response
+
+    logger.warning("Analyze response failed french-only validation attempt=initial")
+    retry_response = _generate_analysis(client, payload.input, retry_for_french=True)
+    if _is_strictly_french_response(retry_response):
+        logger.info("Analyze request succeeded retried_for_french=true")
+        return retry_response
+
+    logger.error("Analyze response failed french-only validation attempt=retry_french")
+    raise HTTPException(
+        status_code=500,
+        detail="Model response did not satisfy the French-only output requirement",
+    )
