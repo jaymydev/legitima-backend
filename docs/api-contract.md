@@ -125,8 +125,10 @@ Language behavior:
 - for the current V1 contract, the backend supports only `input.meta.language = "fr"`
 - all response sections are generated in French
 - mixed French/English output is considered invalid for this endpoint
+- French spelling quality matters, including required accents in standard French words
+- duplicated text reused across different response fields is considered invalid
 - if the first model response contains English content, the backend retries once with a stricter French-only instruction
-- if French-only output is still not achieved, the backend returns an error instead of returning a mixed-language payload
+- if the generated content still fails the quality rules after retry, the backend returns an error instead of returning degraded content
 
 Validation response `422`
 
@@ -165,7 +167,7 @@ Possible current `detail` values include:
 - `OpenAI response did not contain content`
 - `Failed to parse model response as JSON: ...`
 - `Parsed model response is not a JSON object`
-- `Model response did not satisfy the French-only output requirement`
+- `Model response did not satisfy the analyze quality requirements`
 
 Model validation response `422`
 

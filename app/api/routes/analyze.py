@@ -1,6 +1,7 @@
 import json
 import os
 import re
+import unicodedata
 from typing import Iterable
 
 from fastapi import APIRouter, HTTPException
@@ -50,6 +51,15 @@ OUTPUT LANGUAGE RULE:
 - If `input.meta.language` is `fr`, every output field must be written strictly in French.
 - Do not include English words, English headings, or mixed French/English phrasing.
 - If a concept can be expressed in French, express it in French.
+- Use correct French spelling and accents.
+- Do not omit accents in standard French words when they are required.
+- Example: write `expérimenté`, not `experimente`.
+
+FIELD DISTINCTNESS RULE:
+- Each output field must provide distinct value and purpose.
+- Do not copy the same sentence into multiple fields.
+- Do not repeat the same paragraph under different labels.
+- Each field must add new information adapted to its label.
 
 STRICT SEPARATION RULE:
 
@@ -121,10 +131,12 @@ If output deviates from structure, the response is invalid.
 """
 
 FRENCH_RETRY_PROMPT = """
-The previous answer did not satisfy the output language rule.
+The previous answer did not satisfy the output quality rules.
 
 Return the same JSON structure again, but every value must be written strictly in French.
 Do not include English words.
+Use correct French spelling with accents.
+Do not repeat the same text across multiple fields.
 Do not change the schema.
 Do not add fields.
 Do not remove fields.
@@ -151,6 +163,22 @@ ENGLISH_MARKERS = (
     "core",
     "thread",
 )
+
+REQUIRED_FRENCH_ACCENTS = {
+    "experimente": "expérimenté",
+    "experimentee": "expérimentée",
+    "experimentees": "expérimentées",
+    "experimentes": "expérimentés",
+    "developpement": "développement",
+    "developpeur": "développeur",
+    "developpeuse": "développeuse",
+    "coherent": "cohérent",
+    "coherente": "cohérente",
+    "coherents": "cohérents",
+    "coherentes": "cohérentes",
+    "competences": "compétences",
+    "experience": "expérience",
+}
 
 ANALYZE_MODEL = "gpt-4o-mini"
 
@@ -271,8 +299,43 @@ def _contains_english_markers(text: str) -> bool:
     return matches >= 2
 
 
-def _is_strictly_french_response(response: AnalyzeResponseV1) -> bool:
-    return not any(_contains_english_markers(value) for value in _iter_response_strings(response))
+def _strip_accents(value: str) -> str:
+    return "".join(
+        char for char in unicodedata.normalize("NFD", value) if unicodedata.category(char) != "Mn"
+    )
+
+
+def _contains_missing_required_accents(text: str) -> bool:
+    lowered = text.lower()
+    return any(re.search(rf"\b{re.escape(word)}\b", lowered) for word in REQUIRED_FRENCH_ACCENTS)
+
+
+def _normalize_for_duplicate_check(text: str) -> str:
+    lowered = _strip_accents(text).lower()
+    lowered = re.sub(r"[^a-z0-9]+", " ", lowered)
+    return re.sub(r"\s+", " ", lowered).strip()
+
+
+def _contains_duplicate_content(response: AnalyzeResponseV1) -> bool:
+    normalized_values = [_normalize_for_duplicate_check(value) for value in _iter_response_strings(response)]
+    seen: set[str] = set()
+    for value in normalized_values:
+        if len(value) < 20:
+            continue
+        if value in seen:
+            return True
+        seen.add(value)
+    return False
+
+
+def _satisfies_french_quality_rules(response: AnalyzeResponseV1) -> bool:
+    if any(_contains_english_markers(value) for value in _iter_response_strings(response)):
+        return False
+    if any(_contains_missing_required_accents(value) for value in _iter_response_strings(response)):
+        return False
+    if _contains_duplicate_content(response):
+        return False
+    return True
 
 
 def _generate_analysis(
@@ -328,18 +391,18 @@ def analyze(payload: AnalyzeRequest) -> AnalyzeResponseV1:
     client = OpenAI(api_key=api_key)
 
     response = _generate_analysis(client, payload.input)
-    if _is_strictly_french_response(response):
+    if _satisfies_french_quality_rules(response):
         logger.info("Analyze request succeeded retried_for_french=false")
         return response
 
-    logger.warning("Analyze response failed french-only validation attempt=initial")
+    logger.warning("Analyze response failed quality validation attempt=initial")
     retry_response = _generate_analysis(client, payload.input, retry_for_french=True)
-    if _is_strictly_french_response(retry_response):
+    if _satisfies_french_quality_rules(retry_response):
         logger.info("Analyze request succeeded retried_for_french=true")
         return retry_response
 
-    logger.error("Analyze response failed french-only validation attempt=retry_french")
+    logger.error("Analyze response failed quality validation attempt=retry_french")
     raise HTTPException(
         status_code=500,
-        detail="Model response did not satisfy the French-only output requirement",
+        detail="Model response did not satisfy the analyze quality requirements",
     )
