@@ -488,10 +488,13 @@ def _experience_from_adjacent_lines(previous: str, current: str) -> CVExperience
     current_without_period = _clean(current[: match.start()])
     period = _period_from_match(current, match)
     current_without_period, period = _reattach_leading_month_fragment(current_without_period, period)
+    standalone_month = _normalize_month_fragment(current_without_period)
     parts = _SEPARATOR_RE.split(current_without_period, maxsplit=1)
     if len(parts) == 2:
         title, company = map(_clean, parts)
-    elif not current_without_period:
+    elif not current_without_period or standalone_month is not None:
+        if standalone_month is not None and re.match(r"^\d{4}\b", period):
+            period = f"{standalone_month} {period}"
         if "(" in previous:
             combined = _experience_from_line(f"{previous} - {period}")
             if combined is not None and combined.company:
