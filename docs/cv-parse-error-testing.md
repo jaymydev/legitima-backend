@@ -55,7 +55,7 @@ Expected response:
 }
 ```
 
-Alternative `422` scenario:
+Alternative `422` scenario with an unreadable image payload:
 
 ```bash
 printf "fake image payload" > /tmp/legitima-cv.png
@@ -69,9 +69,11 @@ Expected response:
 
 ```json
 {
-  "detail": "Image CV parsing is not currently supported. Upload a text-based PDF."
+  "detail": "The image could not be read"
 }
 ```
+
+Readable JPEG/PNG CV images now use classic OCR. If the image is readable but no exploitable professional experiences are found, `/cv/parse` returns `422`.
 
 ## Reproduce `500 Internal Server Error`
 
