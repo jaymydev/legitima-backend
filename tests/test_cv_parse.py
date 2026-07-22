@@ -1,6 +1,8 @@
 import io
 
 from fastapi.testclient import TestClient
+from PIL import Image
+import pytesseract
 
 from app.main import app
 from app.api.routes import cv as cv_route
@@ -96,6 +98,24 @@ def test_cv_parse_offloads_blocking_parser_to_threadpool(monkeypatch) -> None:
     assert calls["kwargs"]["content_type"] == "application/pdf"
     assert calls["kwargs"]["file_bytes"] == b"fake-pdf"
     assert isinstance(calls["kwargs"]["started_at"], float)
+
+
+def test_cv_parse_downscales_large_images_before_ocr(monkeypatch) -> None:
+    image_bytes = io.BytesIO()
+    Image.new("RGB", (4000, 3000), "white").save(image_bytes, format="JPEG")
+    observed = {}
+
+    def fake_image_to_string(image, **kwargs):
+        observed["size"] = image.size
+        observed["timeout"] = kwargs["timeout"]
+        return "Experience\nDéveloppeur logiciel - 2024"
+
+    monkeypatch.setattr(pytesseract, "image_to_string", fake_image_to_string)
+
+    extracted_text = cv_parse_service._extract_text_from_image(image_bytes.getvalue())
+
+    assert extracted_text == "Experience\nDéveloppeur logiciel - 2024"
+    assert observed == {"size": (2400, 1800), "timeout": 20}
 
 
 def test_cv_parse_rejects_image_without_extractable_text(monkeypatch) -> None:
