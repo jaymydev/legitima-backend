@@ -199,9 +199,12 @@ Maximum file size:
 
 - `10485760` bytes (`10 MB`)
 
-Environment requirement:
+Execution model:
 
-- `OPENAI_API_KEY` must be configured on the backend
+- `/cv/parse` is deterministic and does not call OpenAI
+- `/cv/parse` does not consume OpenAI tokens
+- text-based PDFs are parsed using local text extraction and rules
+- image-only PDFs and image uploads currently return `422` because no OCR engine is enabled in the deployed backend
 
 Response `200`
 
@@ -230,16 +233,15 @@ Validation and error responses:
 - `422` when the multipart body is malformed or the `file` field is missing
 - `415` when the uploaded file type is not supported
 - `413` when the uploaded file exceeds the maximum size
-- `422` when a PDF contains no extractable text for the current parser
-- `500` when `OPENAI_API_KEY` is missing
-- `500` when the OpenAI call fails
-- `500` when the OpenAI response cannot be parsed as JSON
-- `422` when the OpenAI response does not match the documented schema
+- `422` when the PDF contains no extractable text
+- `422` when an image upload is received and OCR is unavailable
 
 Known limitations:
 
-- text-based PDFs are supported; image-only or scanned PDFs are not currently supported by the PDF extraction path
-- if a scanned CV is available only as an image-based PDF, the frontend should prefer sending a photo or image export instead
+- the current deterministic parser supports text-based PDFs only
+- scanned PDFs and standalone image CVs require a future classic OCR integration
+- extraction is rule-based and may return an empty `experiences` array when the CV layout does not expose recognizable experience headings and periods
+- parsing is intended as prefill; `/analyze` remains the only V1 endpoint that uses AI for strategic interview preparation
 - this endpoint extracts only structured experience rows for now; it does not return skills, education, summary, or full CV content
 - this endpoint is intended to support a staged frontend migration from local parsing to backend parsing
 

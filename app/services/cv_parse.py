@@ -1,16 +1,12 @@
 from __future__ import annotations
 
-import base64
-import json
-import os
+import re
+import unicodedata
 from io import BytesIO
 
 from fastapi import HTTPException
-from openai import OpenAI
-from pydantic import BaseModel, ConfigDict, ValidationError
+from pydantic import BaseModel, ConfigDict
 from pypdf import PdfReader
-
-from app.observability.logging import logger
 
 SUPPORTED_IMAGE_TYPES = {
     "image/jpeg",
@@ -22,48 +18,18 @@ SUPPORTED_CONTENT_TYPES = {
     *SUPPORTED_IMAGE_TYPES,
 }
 MAX_CV_FILE_SIZE_BYTES = 10 * 1024 * 1024
-CV_PARSE_MODEL = os.getenv("CV_PARSE_MODEL", "gpt-4o")
 
-CV_PARSE_SYSTEM_PROMPT = """
-You extract work experience entries from CV documents.
-
-Your role is NOT:
-- a career coach
-- a CV writer
-- a generic OCR narrator
-- a recruiter
-
-OBJECTIVE:
-Return only structured professional experiences found in the uploaded CV.
-
-RULES:
-- Do not invent any title, company, or period.
-- Use only information explicitly present in the document.
-- Keep the order found in the document.
-- Return only relevant experience entries.
-- Exclude education, certifications, languages, tools, and profile summaries unless they are clearly part of a work experience entry.
-- If a field is missing for an experience, return an empty string for that field.
-- Normalize obvious whitespace issues, but do not rewrite the meaning.
-- PDF text may contain extraction artifacts such as words split by unexpected spaces.
-- Reconstruct obvious split words when reading the source text, but do not invent missing experience entries.
-
-STRICT OUTPUT CONTRACT:
-Return only a JSON object with this exact structure:
-{
-  "experiences": [
-    {
-      "title": "",
-      "company": "",
-      "period": ""
-    }
-  ]
-}
-
-All fields must be strings.
-No markdown.
-No explanations.
-No additional keys.
-"""
+_PERIOD_RE = re.compile(
+    r"(?ix)"
+    r"(?:"
+    r"(?:\d{1,2}[\s./-])?\d{1,2}[\s./-]\d{2,4}"
+    r"|(?:janv?\.?|f[eé]vr?\.?|mars|avr(?:il)?\.?|mai|juin|juil?\.?|ao[uû]t|sept?\.?|oct(?:obre)?\.?|nov(?:embre)?\.?|d[eé]c(?:embre)?\.?)\s+\d{4}"
+    r"|\d{4}\s*(?:[–—-]|à|au)\s*(?:\d{4}|aujourd'hui|aujourd’hui|présent|present|now)"
+    r"|\d{4}\s*(?:[–—-]|à|au)\s*\d{4}"
+    r"|\d{4}"
+    r")"
+)
+_SEPARATOR_RE = re.compile(r"\s+(?:-|–|—|\|)\s+")
 
 
 class CVExperience(BaseModel):
@@ -99,111 +65,220 @@ def ensure_cv_file_size(file_bytes: bytes) -> None:
 
 
 def parse_cv_file(*, filename: str, content_type: str, file_bytes: bytes) -> CVParseResponse:
+    """Extract work experience without sending the uploaded CV to an LLM."""
+    del filename
     ensure_cv_file_size(file_bytes)
 
-    api_key = os.environ.get("OPENAI_API_KEY")
-    if not api_key:
-        logger.warning("CV parse rejected reason=missing_openai_api_key")
-        raise HTTPException(status_code=500, detail="OPENAI_API_KEY environment variable is missing")
+    if content_type != "application/pdf":
+        raise HTTPException(
+            status_code=422,
+            detail="Image CV parsing is not currently supported. Upload a text-based PDF.",
+        )
 
-    client = OpenAI(api_key=api_key)
-
-    if content_type == "application/pdf":
+    try:
         extracted_text = _extract_text_from_pdf(file_bytes)
-        if not extracted_text.strip():
-            logger.warning("CV parse rejected reason=empty_pdf_text filename=%s", filename)
-            raise HTTPException(
-                status_code=422,
-                detail="No extractable text was found in the PDF. Image-based PDFs are not currently supported.",
-            )
-        return _parse_cv_text(client=client, filename=filename, extracted_text=extracted_text)
+    except Exception as exc:
+        raise HTTPException(status_code=422, detail="The PDF could not be read") from exc
 
-    return _parse_cv_image(
-        client=client,
-        filename=filename,
-        content_type=content_type,
-        file_bytes=file_bytes,
-    )
+    if not extracted_text.strip():
+        raise HTTPException(
+            status_code=422,
+            detail="No extractable text was found in the PDF. Upload a text-based PDF.",
+        )
+    return parse_cv_text(extracted_text)
 
 
 def _extract_text_from_pdf(file_bytes: bytes) -> str:
     reader = PdfReader(BytesIO(file_bytes))
-    pages: list[str] = []
-    for page in reader.pages:
-        pages.append(page.extract_text() or "")
-    return "\n".join(pages).strip()
+    return "\n".join(page.extract_text() or "" for page in reader.pages).strip()
 
 
-def _parse_cv_text(*, client: OpenAI, filename: str, extracted_text: str) -> CVParseResponse:
-    payload = {
-        "filename": filename,
-        "document_type": "cv_pdf_text",
-        "content": extracted_text,
-    }
-    return _call_cv_parse_model(
-        client=client,
-        messages=[
-            {"role": "system", "content": CV_PARSE_SYSTEM_PROMPT},
-            {"role": "user", "content": json.dumps(payload)},
-        ],
-    )
+def parse_cv_text(extracted_text: str) -> CVParseResponse:
+    lines = _normalise_lines(extracted_text)
+    experience_lines = _experience_section(lines)
+    experiences: list[CVExperience] = []
+    current_company = ""
+
+    for index, line in enumerate(experience_lines):
+        if _looks_like_company(line) and len(line) <= 80:
+            current_company = _clean(line)
+        if line.lstrip().startswith("-"):
+            continue
+        if not _has_period(line):
+            continue
+        candidate = _experience_from_line(line)
+        if index > 0 and line.lstrip().startswith("("):
+            candidate = _experience_from_line(f"{experience_lines[index - 1]} {line}") or candidate
+        if index > 0 and (candidate is None or (not candidate.company and ":" not in line)):
+            previous = experience_lines[index - 1]
+            if line.lstrip().startswith("("):
+                previous = f"{previous} {line}"
+            elif "(" in previous and index > 1 and not line.lstrip().startswith("-"):
+                previous = f"{experience_lines[index - 2]} {previous}"
+            adjacent = _experience_from_adjacent_lines(previous, line)
+            if adjacent is not None:
+                candidate = adjacent
+        if candidate is not None and not candidate.company and current_company:
+            candidate = CVExperience(title=candidate.title, company=current_company, period=candidate.period)
+        if candidate is not None:
+            experiences.append(candidate)
+
+    return CVParseResponse(experiences=_deduplicate(experiences))
 
 
-def _parse_cv_image(*, client: OpenAI, filename: str, content_type: str, file_bytes: bytes) -> CVParseResponse:
-    image_data = base64.b64encode(file_bytes).decode("utf-8")
-    user_content = [
-        {
-            "type": "text",
-            "text": (
-                "Extract the professional experience entries from this CV image. "
-                f"Filename: {filename}. "
-                "Return only the required JSON object."
-            ),
-        },
-        {
-            "type": "image_url",
-            "image_url": {
-                "url": f"data:{content_type};base64,{image_data}",
-            },
-        },
-    ]
-    return _call_cv_parse_model(
-        client=client,
-        messages=[
-            {"role": "system", "content": CV_PARSE_SYSTEM_PROMPT},
-            {"role": "user", "content": user_content},
-        ],
-    )
+def _normalise_lines(text: str) -> list[str]:
+    text = unicodedata.normalize("NFKC", text)
+    text = text.replace("\u00a0", " ").replace("–", "-").replace("—", "-")
+    return [re.sub(r"\s+", " ", line).strip(" •●\t") for line in text.splitlines() if line.strip()]
 
 
-def _call_cv_parse_model(client: OpenAI, messages: list[dict[str, object]]) -> CVParseResponse:
-    try:
-        completion = client.chat.completions.create(
-            model=CV_PARSE_MODEL,
-            messages=messages,
-            response_format={"type": "json_object"},
+def _experience_section(lines: list[str]) -> list[str]:
+    result: list[str] = []
+    in_experience_section = False
+    for line in lines:
+        if _is_experience_heading(line):
+            in_experience_section = True
+            continue
+        if _is_section_end_heading(line):
+            in_experience_section = False
+        elif in_experience_section:
+            result.append(line)
+    return result
+
+
+def _heading_key(line: str) -> str:
+    decomposed = unicodedata.normalize("NFD", line)
+    without_accents = "".join(char for char in decomposed if unicodedata.category(char) != "Mn")
+    return re.sub(r"\s+", " ", re.sub(r"[^A-Za-z ]", " ", without_accents)).strip().casefold()
+
+
+def _is_experience_heading(line: str) -> bool:
+    key = _heading_key(line).replace(" ", "")
+    return key in {"experiences", "experience", "experiencesprofessionnelles", "parcoursprofessionnel"}
+
+
+def _is_section_end_heading(line: str) -> bool:
+    key = _heading_key(line).replace(" ", "")
+    return key.startswith(
+        (
+            "formation",
+            "education",
+            "certification",
+            "competence",
+            "skill",
+            "langue",
+            "centresinteret",
+            "interests",
+            "aboutme",
+            "motscles",
+            "personnalite",
         )
-    except Exception as exc:
-        logger.exception("CV parse OpenAI call failed model=%s", CV_PARSE_MODEL)
-        raise HTTPException(status_code=500, detail=f"OpenAI API call failed: {exc}") from exc
+    )
 
-    content = completion.choices[0].message.content if completion.choices else None
-    if not content:
-        logger.warning("CV parse failed reason=empty_model_response model=%s", CV_PARSE_MODEL)
-        raise HTTPException(status_code=500, detail="OpenAI response did not contain content")
 
-    try:
-        parsed = json.loads(content)
-    except Exception as exc:
-        logger.warning("CV parse failed reason=invalid_json model=%s", CV_PARSE_MODEL)
-        raise HTTPException(status_code=500, detail=f"Failed to parse model response as JSON: {exc}") from exc
+def _has_period(line: str) -> bool:
+    return bool(_PERIOD_RE.search(line))
 
-    if not isinstance(parsed, dict):
-        logger.warning("CV parse failed reason=not_json_object model=%s", CV_PARSE_MODEL)
-        raise HTTPException(status_code=500, detail="Parsed model response is not a JSON object")
 
-    try:
-        return CVParseResponse.model_validate(parsed)
-    except ValidationError as exc:
-        logger.warning("CV parse failed reason=invalid_response_schema model=%s", CV_PARSE_MODEL)
-        raise HTTPException(status_code=422, detail=exc.errors()) from exc
+def _experience_from_line(line: str) -> CVExperience | None:
+    match = _PERIOD_RE.search(line)
+    if not match:
+        return None
+    period = _period_from_match(line, match)
+    before = _clean(line[: match.start()])
+    if not before:
+        return None
+
+    trailing_title = re.search(
+        r"(?i)(?P<title>(?:d[eé]veloppeur|d[eé]veloppeuse|testeur|testeuse|consultant(?:e)?|ing[eé]nieur(?:e)?|assistant(?:e)?|technicien(?:ne)?)[^:]{0,80})$",
+        before,
+    )
+    if trailing_title:
+        return CVExperience(title=_clean(trailing_title.group("title")), company="", period=period)
+
+    parts = _SEPARATOR_RE.split(before, maxsplit=1)
+    if len(parts) == 2:
+        left, right = map(_clean, parts)
+        if _looks_like_company(left) and not _looks_like_company(right):
+            return CVExperience(title=right, company=left, period=period)
+        return CVExperience(title=left, company=right, period=period)
+
+    embedded_company = re.search(
+        r"(?P<title>.+?)\s+(?P<company>[A-Z][A-Za-zÀ-ÿ&.'-]*)\s*\(",
+        before,
+    )
+    if embedded_company:
+        return CVExperience(
+            title=_clean(embedded_company.group("title")),
+            company=_clean(embedded_company.group("company")),
+            period=period,
+        )
+
+    # Common CV layout: "Title Company (mission...) | date".
+    organisation = re.search(r"(?P<title>.+?)\s+(?P<company>[A-Z][A-Za-zÀ-ÿ&.' -]{2,})(?=\s*(?:\(|$))", before)
+    if organisation:
+        return CVExperience(
+            title=_clean(organisation.group("title")),
+            company=_clean(organisation.group("company")),
+            period=period,
+        )
+
+    return CVExperience(title=before, company="", period=period)
+
+
+def _experience_from_adjacent_lines(previous: str, current: str) -> CVExperience | None:
+    match = _PERIOD_RE.search(current)
+    if not match:
+        return None
+    current_without_period = _clean(current[: match.start()])
+    period = _period_from_match(current, match)
+    parts = _SEPARATOR_RE.split(current_without_period, maxsplit=1)
+    if len(parts) == 2:
+        title, company = map(_clean, parts)
+    elif not current_without_period:
+        if "(" in previous:
+            combined = _experience_from_line(f"{previous} - {period}")
+            if combined is not None and combined.company:
+                return combined
+        parts = _SEPARATOR_RE.split(previous, maxsplit=1)
+        if len(parts) != 2:
+            return None
+        company, title = map(_clean, parts)
+    else:
+        title, company = current_without_period, _clean(previous)
+    if not title:
+        return None
+    return CVExperience(title=title, company=company, period=period)
+
+
+def _period_from_match(line: str, match: re.Match[str]) -> str:
+    period = match.group(0)
+    suffix = line[match.end() :]
+    continuation = re.match(
+        r"\s*(?:-|à|au)\s*(?:(?:[A-Za-zÀ-ÿ]+\.?)\s+\d{4}|(?:\d{1,2}[\s./-])?\d{1,2}[\s./-]\d{2,4}|\d{4}|aujourd'hui|aujourd’hui|présent|present|now)",
+        suffix,
+        flags=re.IGNORECASE,
+    )
+    if continuation:
+        period += continuation.group(0)
+    return _clean(period)
+
+
+def _looks_like_company(value: str) -> bool:
+    words = [word for word in value.split() if word]
+    return bool(words) and (value.upper() == value or any(token in value.lower() for token in ("sarl", "sas", "airbus", "capgemini")))
+
+
+def _clean(value: str) -> str:
+    return re.sub(r"\s+", " ", value).strip(" -|,;:")
+
+
+def _deduplicate(experiences: list[CVExperience]) -> list[CVExperience]:
+    seen: set[tuple[str, str, str]] = set()
+    result: list[CVExperience] = []
+    for experience in experiences:
+        key = (experience.title.casefold(), experience.company.casefold(), experience.period.casefold())
+        if key not in seen:
+            seen.add(key)
+            result.append(experience)
+    return result
