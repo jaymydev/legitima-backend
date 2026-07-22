@@ -240,6 +240,7 @@ Validation and error responses:
 - `415` when the uploaded file type is not supported
 - `413` when the uploaded file exceeds the maximum size
 - `422` when the PDF contains no extractable text
+- `422` when the PDF is readable but no exploitable professional experiences are found
 - `422` when an image upload is received and OCR is unavailable
 - `500` when `X-CV-Parse-Test-Error: 500` is sent and `ENABLE_CV_PARSE_TEST_ERRORS=true` is enabled in a controlled local or staging environment
 
@@ -247,7 +248,7 @@ Known limitations:
 
 - the current deterministic parser supports text-based PDFs only
 - scanned PDFs and standalone image CVs require a future classic OCR integration
-- extraction is rule-based and may return an empty `experiences` array when the CV layout does not expose recognizable experience headings and periods
+- extraction is rule-based and may return `422` when the CV layout does not expose recognizable experience headings and periods
 - parsing is intended as prefill; `/analyze` remains the only V1 endpoint that uses AI for strategic interview preparation
 - this endpoint extracts only structured experience rows for now; it does not return skills, education, summary, or full CV content
 - this endpoint is intended to support a staged frontend migration from local parsing to backend parsing
