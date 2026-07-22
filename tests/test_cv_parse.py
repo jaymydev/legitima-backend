@@ -297,14 +297,14 @@ def test_cv_parse_handles_english_role_lines_without_promoting_bullets() -> None
                 "period": "Jan 2026 - Present",
             },
             {
-                "title": "PLM Technical Consultant",
-                "company": "Airbus (via Capgemini)",
-                "period": "2024",
-            },
-            {
                 "title": "Software Engineer",
                 "company": "AI Internal Project (Capgemini)",
                 "period": "2025",
+            },
+            {
+                "title": "PLM Technical Consultant",
+                "company": "Airbus (via Capgemini)",
+                "period": "2024",
             },
             {
                 "title": "Software & Test Engineer",
@@ -348,6 +348,11 @@ def test_cv_parse_handles_reference_cv_style_experience_blocks() -> None:
                 "period": "Depuis janvier 2020",
             },
             {
+                "title": "TECHNICIENNE DE PAIE",
+                "company": "OPTINERIS - Tulle (19)",
+                "period": "Mai 2018 - Octobre 2018",
+            },
+            {
                 "title": "ASSISTANTE ADMINISTRATION DES VENTES",
                 "company": "LESER Sarl - L'Union (31)",
                 "period": "Juillet 2014 - Juin 2017",
@@ -356,11 +361,6 @@ def test_cv_parse_handles_reference_cv_style_experience_blocks() -> None:
                 "title": "EMPLOYÉE ADMINISTRATIVE",
                 "company": "TEN Sud-Ouest - Toulouse (31)",
                 "period": "Septembre 2012 - Juillet 2014",
-            },
-            {
-                "title": "TECHNICIENNE DE PAIE",
-                "company": "OPTINERIS - Tulle (19)",
-                "period": "Mai 2018 - Octobre 2018",
             },
         ]
     }
@@ -417,6 +417,11 @@ def test_cv_parse_handles_title_company_then_period_lines_with_locations() -> No
                 "period": "Depuis septembre 2020",
             },
             {
+                "title": "TECHNICIENNE DE PAIE",
+                "company": "OPTINERIS - Tulle (19)",
+                "period": "Mai 2018 - Octobre 2018",
+            },
+            {
                 "title": "ASSISTANTE ADMINISTRATION DES VENTES",
                 "company": "LESER Sarl - L'Union (31)",
                 "period": "Juillet 2014 - Juin 2017",
@@ -425,11 +430,6 @@ def test_cv_parse_handles_title_company_then_period_lines_with_locations() -> No
                 "title": "EMPLOYÉE ADMINISTRATIVE",
                 "company": "TFN Sud-Ouest - Toulouse (31)",
                 "period": "Septembre 2012 - Juillet 2014",
-            },
-            {
-                "title": "TECHNICIENNE DE PAIE",
-                "company": "OPTINERIS - Tulle (19)",
-                "period": "Mai 2018 - Octobre 2018",
             },
         ]
     }
@@ -460,14 +460,14 @@ def test_cv_parse_cleans_ocr_noise_and_reattaches_leading_month_fragment() -> No
                 "period": "Depuis septembre 2020",
             },
             {
-                "title": "AMBASSADRICE DES VALEURS",
-                "company": "OCEA",
-                "period": "2022 - 2025",
-            },
-            {
                 "title": "ASSISTANTE ADMINISTRATIVE INDÉPENDANTE",
                 "company": "AD 2 Assist'U - Brive-la-Gaillarde",
                 "period": "Depuis janvier 2020",
+            },
+            {
+                "title": "AMBASSADRICE DES VALEURS",
+                "company": "OCEA",
+                "period": "2022 - 2025",
             },
             {
                 "title": "ASSISTANTE ADMINISTRATION DES VENTES",
@@ -501,6 +501,67 @@ def test_cv_parse_reattaches_split_month_fragment_from_period_line() -> None:
                 "company": "TFN Sud-Ouest - Toulouse (31)",
                 "period": "Septembre 2012 - Juillet 2014",
             }
+        ]
+    }
+
+
+def test_cv_parse_sorts_experiences_by_recency_instead_of_ocr_order() -> None:
+    result = cv_parse_service.parse_cv_text(
+        """
+        EXPÉRIENCES PROFESSIONNELLES
+        EMPLOYÉE ADMINISTRATIVE - TFN Sud-Ouest - Toulouse (31)
+        Septembre 2012 - Juillet 2014
+        TECHNICIENNE DE PAIE - OPTINERIS - Tulle (19)
+        Mai 2018 - Octobre 2018 (CDD)
+        FORMATIONS
+        PRINCE2 FOUNDATION
+        """
+    )
+
+    assert result.model_dump() == {
+        "experiences": [
+            {
+                "title": "TECHNICIENNE DE PAIE",
+                "company": "OPTINERIS - Tulle (19)",
+                "period": "Mai 2018 - Octobre 2018",
+            },
+            {
+                "title": "EMPLOYÉE ADMINISTRATIVE",
+                "company": "TFN Sud-Ouest - Toulouse (31)",
+                "period": "Septembre 2012 - Juillet 2014",
+            },
+        ]
+    }
+
+
+def test_cv_parse_keeps_only_five_most_recent_experiences() -> None:
+    result = cv_parse_service.parse_cv_text(
+        """
+        EXPÉRIENCES PROFESSIONNELLES
+        EXP A - SOCIETE A
+        2010 - 2011
+        EXP B - SOCIETE B
+        2012 - 2013
+        EXP C - SOCIETE C
+        2014 - 2015
+        EXP D - SOCIETE D
+        2016 - 2017
+        EXP E - SOCIETE E
+        2018 - 2019
+        EXP F - SOCIETE F
+        2020 - 2021
+        FORMATIONS
+        BTS
+        """
+    )
+
+    assert result.model_dump() == {
+        "experiences": [
+            {"title": "EXP F", "company": "SOCIETE F", "period": "2020 - 2021"},
+            {"title": "EXP E", "company": "SOCIETE E", "period": "2018 - 2019"},
+            {"title": "EXP D", "company": "SOCIETE D", "period": "2016 - 2017"},
+            {"title": "EXP C", "company": "SOCIETE C", "period": "2014 - 2015"},
+            {"title": "EXP B", "company": "SOCIETE B", "period": "2012 - 2013"},
         ]
     }
 
