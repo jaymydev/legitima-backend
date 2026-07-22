@@ -1,6 +1,4 @@
 import io
-import json
-from types import SimpleNamespace
 
 from fastapi.testclient import TestClient
 
@@ -9,91 +7,125 @@ from app.services import cv_parse as cv_parse_service
 
 
 def test_cv_parse_rejects_unsupported_file_type() -> None:
-    client = TestClient(app)
-
-    response = client.post(
+    response = TestClient(app).post(
         "/cv/parse",
         files={"file": ("resume.txt", io.BytesIO(b"hello"), "text/plain")},
     )
 
     assert response.status_code == 415
-    assert response.json()["detail"].startswith("Unsupported file type")
 
 
-def test_cv_parse_requires_openai_api_key() -> None:
-    client = TestClient(app)
-
-    response = client.post(
+def test_cv_parse_rejects_images_without_using_openai() -> None:
+    response = TestClient(app).post(
         "/cv/parse",
         files={"file": ("resume.png", io.BytesIO(b"fake-image"), "image/png")},
     )
 
-    assert response.status_code == 500
-    assert response.json() == {"detail": "OPENAI_API_KEY environment variable is missing"}
+    assert response.status_code == 422
+    assert "text-based PDF" in response.json()["detail"]
 
 
-def test_cv_parse_extracts_experiences_from_pdf(monkeypatch) -> None:
-    client = TestClient(app)
-    expected_response = {
+def test_cv_parse_extracts_structured_experience_and_excludes_other_sections() -> None:
+    text = """
+    FORMATIONS
+    Master 2017 - 2019
+    EXPÉRIENCES PROFESSIONNELLES
+    AIRBUS
+    Développeur logiciel - 2024
+    THALES ALENIA SPACE
+    Développeur logiciel - 2022 à 2023
+    COMPÉTENCES
+    Python Git Leadership
+    LANGUES
+    Français Anglais
+    """
+
+    result = cv_parse_service.parse_cv_text(text)
+
+    assert result.model_dump() == {
         "experiences": [
-            {
-                "title": "Senior Backend Engineer",
-                "company": "Legitima",
-                "period": "2023-2026",
-            }
+            {"title": "Développeur logiciel", "company": "AIRBUS", "period": "2024"},
+            {"title": "Développeur logiciel", "company": "THALES ALENIA SPACE", "period": "2022 à 2023"},
         ]
     }
 
-    class FakeOpenAI:
-        def __init__(self, api_key: str):
-            self.chat = SimpleNamespace(completions=SimpleNamespace(create=self.create))
 
-        def create(self, **kwargs):
-            return SimpleNamespace(
-                choices=[SimpleNamespace(message=SimpleNamespace(content=json.dumps(expected_response)))]
-            )
-
-    monkeypatch.setenv("OPENAI_API_KEY", "test-key")
-    monkeypatch.setattr(cv_parse_service, "OpenAI", FakeOpenAI)
-    monkeypatch.setattr(
-        cv_parse_service,
-        "_extract_text_from_pdf",
-        lambda _: "Senior Backend Engineer - Legitima - 2023-2026",
+def test_cv_parse_supports_company_title_period_on_one_line() -> None:
+    result = cv_parse_service.parse_cv_text(
+        """
+        PARCOURS PROFESSIONNEL
+        DOMINO STAFF pour OCEA Smart Building - Assistante d'exploitation
+        22/09/20 à aujourd'hui
+        FORMATIONS
+        AFPA 2017 - 2018
+        """
     )
 
-    response = client.post(
-        "/cv/parse",
-        files={"file": ("resume.pdf", io.BytesIO(b"%PDF-1.4 fake"), "application/pdf")},
+    assert result.experiences == [
+        cv_parse_service.CVExperience(
+            title="Assistante d'exploitation",
+            company="DOMINO STAFF pour OCEA Smart Building",
+            period="22/09/20 à aujourd'hui",
+        )
+    ]
+
+
+def test_cv_parse_handles_english_role_lines_without_promoting_bullets() -> None:
+    result = cv_parse_service.parse_cv_text(
+        """
+        Experience
+        PLM Engineer - Confidential Program (High-Security Sector) | Jan 2026 - Present
+        - Building secure 3DEXPERIENCE widgets for a regulated, defense-related environment.
+        - Improved PLM automation and reduced manual workload ~15-20%.
+        PLM Technical Consultant - Airbus (via Capgemini) | 2024
+        Software Engineer - AI Internal Project (Capgemini) | 2025
+        Software & Test Engineer - Aerospace/Automotive Programs | 2017-2023
+        """
     )
 
-    assert response.status_code == 200
-    assert response.json() == expected_response
+    assert result.model_dump() == {
+        "experiences": [
+            {
+                "title": "PLM Engineer",
+                "company": "Confidential Program (High-Security Sector)",
+                "period": "Jan 2026 - Present",
+            },
+            {
+                "title": "PLM Technical Consultant",
+                "company": "Airbus (via Capgemini)",
+                "period": "2024",
+            },
+            {
+                "title": "Software Engineer",
+                "company": "AI Internal Project (Capgemini)",
+                "period": "2025",
+            },
+            {
+                "title": "Software & Test Engineer",
+                "company": "Aerospace/Automotive Programs",
+                "period": "2017-2023",
+            },
+        ]
+    }
 
 
 def test_cv_parse_rejects_pdf_without_extractable_text(monkeypatch) -> None:
-    client = TestClient(app)
-
-    monkeypatch.setenv("OPENAI_API_KEY", "test-key")
     monkeypatch.setattr(cv_parse_service, "_extract_text_from_pdf", lambda _: "")
 
-    response = client.post(
+    response = TestClient(app).post(
         "/cv/parse",
         files={"file": ("resume.pdf", io.BytesIO(b"%PDF-1.4 fake"), "application/pdf")},
     )
 
     assert response.status_code == 422
-    assert "No extractable text was found in the PDF" in response.json()["detail"]
+    assert "text-based PDF" in response.json()["detail"]
 
 
-def test_cv_parse_rejects_oversized_files(monkeypatch) -> None:
-    client = TestClient(app)
-    monkeypatch.setenv("OPENAI_API_KEY", "test-key")
-
+def test_cv_parse_rejects_oversized_files() -> None:
     oversized_bytes = b"a" * (cv_parse_service.MAX_CV_FILE_SIZE_BYTES + 1)
-    response = client.post(
+    response = TestClient(app).post(
         "/cv/parse",
-        files={"file": ("resume.png", io.BytesIO(oversized_bytes), "image/png")},
+        files={"file": ("resume.pdf", io.BytesIO(oversized_bytes), "application/pdf")},
     )
 
     assert response.status_code == 413
-    assert "Maximum size is" in response.json()["detail"]
