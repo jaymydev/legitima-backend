@@ -3,6 +3,7 @@ from fastapi import FastAPI
 from app.api.health import router as health_router
 from app.api.routes.analyze import router as analyze_router
 from app.api.routes.contexte import router as contexte_router
+from app.api.routes.cv import router as cv_router
 from app.api.routes.elements import router as elements_router
 from app.api.routes.fil_conducteur import router as fil_conducteur_router
 from app.api.routes.parcours import router as parcours_router
@@ -20,6 +21,7 @@ def create_app() -> FastAPI:
 
     app.include_router(health_router)
     app.include_router(analyze_router)
+    app.include_router(cv_router)
     app.include_router(contexte_router, prefix="/contexte", tags=["ContexteEntretien"])
     app.include_router(parcours_router, prefix="/parcours", tags=["ParcoursProfessionnel"])
     app.include_router(elements_router, prefix="/elements", tags=["ElementDeParcours"])
