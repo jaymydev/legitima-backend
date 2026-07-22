@@ -3,6 +3,7 @@ import io
 from fastapi.testclient import TestClient
 
 from app.main import app
+from app.api.routes import cv as cv_route
 from app.services import cv_parse as cv_parse_service
 
 
@@ -65,6 +66,36 @@ def test_cv_parse_extracts_experiences_from_image_ocr(monkeypatch) -> None:
             }
         ]
     }
+
+
+def test_cv_parse_offloads_blocking_parser_to_threadpool(monkeypatch) -> None:
+    calls = {}
+
+    async def fake_run_in_threadpool(function, **kwargs):
+        calls["function"] = function
+        calls["kwargs"] = kwargs
+        return cv_parse_service.CVParseResponse(
+            experiences=[
+                cv_parse_service.CVExperience(
+                    title="Développeur logiciel",
+                    company="Legitima",
+                    period="2024",
+                )
+            ]
+        )
+
+    monkeypatch.setattr(cv_route, "run_in_threadpool", fake_run_in_threadpool)
+
+    response = TestClient(app).post(
+        "/cv/parse",
+        files={"file": ("resume.pdf", io.BytesIO(b"fake-pdf"), "application/pdf")},
+    )
+
+    assert response.status_code == 200
+    assert calls["function"] is cv_route.parse_cv_file
+    assert calls["kwargs"]["content_type"] == "application/pdf"
+    assert calls["kwargs"]["file_bytes"] == b"fake-pdf"
+    assert isinstance(calls["kwargs"]["started_at"], float)
 
 
 def test_cv_parse_rejects_image_without_extractable_text(monkeypatch) -> None:

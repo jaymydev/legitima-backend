@@ -4,10 +4,13 @@ import os
 import re
 import unicodedata
 from io import BytesIO
+from time import perf_counter
 
 from fastapi import HTTPException
 from pydantic import BaseModel, ConfigDict
 from pypdf import PdfReader
+
+from app.observability.logging import logger
 
 SUPPORTED_IMAGE_TYPES = {
     "image/jpeg",
@@ -19,6 +22,7 @@ SUPPORTED_CONTENT_TYPES = {
     *SUPPORTED_IMAGE_TYPES,
 }
 MAX_CV_FILE_SIZE_BYTES = 10 * 1024 * 1024
+CV_PARSE_OCR_TIMEOUT_SECONDS = 20
 ENABLE_CV_PARSE_TEST_ERRORS_ENV = "ENABLE_CV_PARSE_TEST_ERRORS"
 CV_PARSE_TEST_ERROR_500 = "500"
 
@@ -83,10 +87,18 @@ def maybe_raise_cv_parse_test_error(test_error: str | None) -> None:
     raise HTTPException(status_code=500, detail="Forced /cv/parse test error")
 
 
-def parse_cv_file(*, filename: str, content_type: str, file_bytes: bytes) -> CVParseResponse:
+def parse_cv_file(
+    *,
+    filename: str,
+    content_type: str,
+    file_bytes: bytes,
+    started_at: float | None = None,
+) -> CVParseResponse:
     """Extract work experience without sending the uploaded CV to an LLM."""
     del filename
+    started_at = started_at or perf_counter()
     ensure_cv_file_size(file_bytes)
+    extraction_started_at = perf_counter()
 
     if content_type in SUPPORTED_IMAGE_TYPES:
         try:
@@ -101,7 +113,15 @@ def parse_cv_file(*, filename: str, content_type: str, file_bytes: bytes) -> CVP
                 status_code=422,
                 detail="No extractable text was found in the image. Upload a readable CV image.",
             )
-        return _response_from_extracted_text(extracted_text)
+        response = _response_from_extracted_text(extracted_text)
+        _log_parse_timing(
+            content_type=content_type,
+            file_size_bytes=len(file_bytes),
+            extraction_duration_ms=_elapsed_ms(extraction_started_at),
+            total_duration_ms=_elapsed_ms(started_at),
+            experience_count=len(response.experiences),
+        )
+        return response
 
     if content_type != "application/pdf":
         raise HTTPException(
@@ -119,7 +139,37 @@ def parse_cv_file(*, filename: str, content_type: str, file_bytes: bytes) -> CVP
             status_code=422,
             detail="No extractable text was found in the PDF. Upload a text-based PDF.",
         )
-    return _response_from_extracted_text(extracted_text)
+    response = _response_from_extracted_text(extracted_text)
+    _log_parse_timing(
+        content_type=content_type,
+        file_size_bytes=len(file_bytes),
+        extraction_duration_ms=_elapsed_ms(extraction_started_at),
+        total_duration_ms=_elapsed_ms(started_at),
+        experience_count=len(response.experiences),
+    )
+    return response
+
+
+def _elapsed_ms(started_at: float) -> int:
+    return round((perf_counter() - started_at) * 1000)
+
+
+def _log_parse_timing(
+    *,
+    content_type: str,
+    file_size_bytes: int,
+    extraction_duration_ms: int,
+    total_duration_ms: int,
+    experience_count: int,
+) -> None:
+    logger.info(
+        "CV parse completed content_type=%s file_size_bytes=%d extraction_duration_ms=%d total_duration_ms=%d experience_count=%d",
+        content_type,
+        file_size_bytes,
+        extraction_duration_ms,
+        total_duration_ms,
+        experience_count,
+    )
 
 
 def _extract_text_from_pdf(file_bytes: bytes) -> str:
@@ -138,7 +188,12 @@ def _extract_text_from_image(file_bytes: bytes) -> str:
     try:
         image = Image.open(BytesIO(file_bytes))
         image = ImageOps.autocontrast(image.convert("L"))
-        return pytesseract.image_to_string(image, lang=ocr_language, config="--psm 6").strip()
+        return pytesseract.image_to_string(
+            image,
+            lang=ocr_language,
+            config="--psm 6",
+            timeout=CV_PARSE_OCR_TIMEOUT_SECONDS,
+        ).strip()
     except RuntimeError:
         raise
     except Exception as exc:
