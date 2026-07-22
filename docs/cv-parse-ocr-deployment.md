@@ -67,6 +67,25 @@ Uvicorn to it automatically.
 After deployment, verify `/health`, then upload a JPEG or PNG CV to `/cv/parse`. A successful
 OCR deployment must return the normal `experiences` response instead of the missing-engine `500`.
 
+## Timeout Diagnostics
+
+The PDF extraction and image OCR work runs in a threadpool so it does not block FastAPI's event
+loop or delay concurrent `/health` requests. Each successful parse logs only operational metadata:
+
+- MIME type
+- file size in bytes
+- extraction duration in milliseconds
+- total duration in milliseconds
+- number of extracted experiences
+
+The CV content, filename, and extracted text are never logged. Compare `total_duration_ms` with
+the request duration shown by Render. If `/health` is also slow while no parse is running, the
+remaining likely causes are a Render cold start or service resource pressure rather than the OCR
+parser itself.
+
+Tesseract also has a 20-second internal timeout. If it exceeds that limit, the request returns a
+controlled `500` instead of keeping a worker occupied indefinitely.
+
 ## Supported Uploads
 
 Supported:
