@@ -116,7 +116,7 @@ def test_cv_parse_downscales_large_images_before_ocr(monkeypatch) -> None:
     extracted_text = cv_parse_service._extract_text_from_image(image_bytes.getvalue())
 
     assert extracted_text == "Experience\nDéveloppeur logiciel - 2024"
-    assert observed == {"size": (2400, 1800), "timeout": 20, "config": "--psm 11"}
+    assert observed == {"size": (2400, 1800), "timeout": 20, "config": "--psm 3"}
 
 
 def test_cv_parse_rejects_image_without_extractable_text(monkeypatch) -> None:
