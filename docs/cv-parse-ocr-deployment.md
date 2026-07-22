@@ -90,8 +90,8 @@ Before OCR, the backend applies the image's EXIF orientation and limits the larg
 dimension to 2400 pixels. This keeps high-resolution phone photos and screenshots from consuming
 excessive CPU while preserving enough resolution for normal CV text.
 
-Tesseract uses page segmentation mode `11`, which is better suited to CVs with multiple text
-columns and separated content blocks.
+Tesseract uses automatic page segmentation mode `3` for complete CV pages. This preserves the
+reading order of full-page layouts, including CVs with multiple columns.
 
 ## Supported Uploads
 

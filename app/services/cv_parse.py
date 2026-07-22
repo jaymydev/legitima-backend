@@ -205,8 +205,8 @@ def _extract_text_from_image(file_bytes: bytes) -> str:
         return pytesseract.image_to_string(
             image,
             lang=ocr_language,
-            # Sparse text mode handles multi-column CV layouts better than a single block.
-            config="--psm 11",
+            # Automatic page segmentation preserves the reading order of full CV pages.
+            config="--psm 3",
             timeout=CV_PARSE_OCR_TIMEOUT_SECONDS,
         ).strip()
     except RuntimeError:
