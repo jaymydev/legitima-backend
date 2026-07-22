@@ -100,7 +100,13 @@ def parse_cv_file(*, filename: str, content_type: str, file_bytes: bytes) -> CVP
             status_code=422,
             detail="No extractable text was found in the PDF. Upload a text-based PDF.",
         )
-    return parse_cv_text(extracted_text)
+    result = parse_cv_text(extracted_text)
+    if not result.experiences:
+        raise HTTPException(
+            status_code=422,
+            detail="No exploitable professional experiences were found in this PDF. Verify that it is a readable CV.",
+        )
+    return result
 
 
 def _extract_text_from_pdf(file_bytes: bytes) -> str:
