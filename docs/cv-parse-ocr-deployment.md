@@ -86,6 +86,10 @@ parser itself.
 Tesseract also has a 20-second internal timeout. If it exceeds that limit, the request returns a
 controlled `500` instead of keeping a worker occupied indefinitely.
 
+Before OCR, the backend applies the image's EXIF orientation and limits the largest image
+dimension to 2400 pixels. This keeps high-resolution phone photos and screenshots from consuming
+excessive CPU while preserving enough resolution for normal CV text.
+
 ## Supported Uploads
 
 Supported:
