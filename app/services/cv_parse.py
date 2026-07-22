@@ -23,6 +23,7 @@ SUPPORTED_CONTENT_TYPES = {
 }
 MAX_CV_FILE_SIZE_BYTES = 10 * 1024 * 1024
 CV_PARSE_OCR_TIMEOUT_SECONDS = 20
+CV_PARSE_OCR_MAX_IMAGE_DIMENSION = 2400
 ENABLE_CV_PARSE_TEST_ERRORS_ENV = "ENABLE_CV_PARSE_TEST_ERRORS"
 CV_PARSE_TEST_ERROR_500 = "500"
 
@@ -186,7 +187,20 @@ def _extract_text_from_image(file_bytes: bytes) -> str:
 
     ocr_language = os.getenv("CV_PARSE_OCR_LANG", "fra+eng")
     try:
-        image = Image.open(BytesIO(file_bytes))
+        image = ImageOps.exif_transpose(Image.open(BytesIO(file_bytes)))
+        original_width, original_height = image.size
+        image.thumbnail(
+            (CV_PARSE_OCR_MAX_IMAGE_DIMENSION, CV_PARSE_OCR_MAX_IMAGE_DIMENSION),
+            Image.Resampling.LANCZOS,
+        )
+        logger.info(
+            "CV OCR image prepared original_width=%d original_height=%d processed_width=%d processed_height=%d resized=%s",
+            original_width,
+            original_height,
+            image.width,
+            image.height,
+            image.size != (original_width, original_height),
+        )
         image = ImageOps.autocontrast(image.convert("L"))
         return pytesseract.image_to_string(
             image,
