@@ -46,10 +46,26 @@ then the Python code is deployed, but the Render runtime is missing Tesseract or
 
 Recommended production deployment options:
 
-- use a Docker-based Render service that installs `tesseract-ocr`, `tesseract-ocr-fra`, and `tesseract-ocr-eng`
+- use the repository `Dockerfile` for the Render service; it installs `tesseract-ocr`, `tesseract-ocr-fra`, and `tesseract-ocr-eng`
 - or configure an equivalent Render environment that provides the same system packages
 
 Do not fall back to OpenAI for `/cv/parse`.
+
+## Render Docker Setup
+
+Create or update the Render web service with these settings:
+
+- **Environment:** `Docker`
+- **Dockerfile Path:** `./Dockerfile`
+- **Docker Context:** `.`
+- **Environment Variable:** `CV_PARSE_OCR_LANG=fra+eng` (optional; this is already the image default)
+
+When using the Docker environment, leave Render's build and start command fields empty so the
+image's `CMD` is used. Render provides the `PORT` variable at runtime and the container binds
+Uvicorn to it automatically.
+
+After deployment, verify `/health`, then upload a JPEG or PNG CV to `/cv/parse`. A successful
+OCR deployment must return the normal `experiences` response instead of the missing-engine `500`.
 
 ## Supported Uploads
 
