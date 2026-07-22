@@ -22,7 +22,7 @@ MAX_CV_FILE_SIZE_BYTES = 10 * 1024 * 1024
 _PERIOD_RE = re.compile(
     r"(?ix)"
     r"(?:"
-    r"(?:\d{1,2}[\s./-])?\d{1,2}[\s./-]\d{2,4}"
+    r"(?:\d{1,2}[\s./-])?\d{1,2}[\s./-]\d{2,4}(?!\s*%)"
     r"|(?:janv?\.?|f[eé]vr?\.?|mars|avr(?:il)?\.?|mai|juin|juil?\.?|ao[uû]t|sept?\.?|oct(?:obre)?\.?|nov(?:embre)?\.?|d[eé]c(?:embre)?\.?)\s+\d{4}"
     r"|\d{4}\s*(?:[–—-]|à|au)\s*(?:\d{4}|aujourd'hui|aujourd’hui|présent|present|now)"
     r"|\d{4}\s*(?:[–—-]|à|au)\s*\d{4}"
@@ -30,6 +30,10 @@ _PERIOD_RE = re.compile(
     r")"
 )
 _SEPARATOR_RE = re.compile(r"\s+(?:-|–|—|\|)\s+")
+_KNOWN_COMPANY_CONTEXT_RE = re.compile(
+    r"(?P<company>\baccenture\b(?:\s*\([^)]*\))?)",
+    flags=re.IGNORECASE,
+)
 
 
 class CVExperience(BaseModel):
@@ -102,13 +106,14 @@ def parse_cv_text(extracted_text: str) -> CVParseResponse:
     for index, line in enumerate(experience_lines):
         if _looks_like_company(line) and len(line) <= 80:
             current_company = _clean(line)
-        if line.lstrip().startswith("-"):
+        if line.lstrip().startswith("-") and not _has_period(line):
             continue
         if not _has_period(line):
             continue
-        candidate = _experience_from_line(line)
-        if index > 0 and line.lstrip().startswith("("):
+        if index > 0 and line.lstrip().startswith(("-", "(")):
             candidate = _experience_from_line(f"{experience_lines[index - 1]} {line}") or candidate
+        else:
+            candidate = _experience_from_line(line)
         if index > 0 and (candidate is None or (not candidate.company and ":" not in line)):
             previous = experience_lines[index - 1]
             if line.lstrip().startswith("("):
@@ -189,6 +194,10 @@ def _experience_from_line(line: str) -> CVExperience | None:
     if not before:
         return None
 
+    known_company = _experience_with_known_company_context(before, period)
+    if known_company is not None:
+        return known_company
+
     trailing_title = re.search(
         r"(?i)(?P<title>(?:d[eé]veloppeur|d[eé]veloppeuse|testeur|testeuse|consultant(?:e)?|ing[eé]nieur(?:e)?|assistant(?:e)?|technicien(?:ne)?)[^:]{0,80})$",
         before,
@@ -224,6 +233,18 @@ def _experience_from_line(line: str) -> CVExperience | None:
         )
 
     return CVExperience(title=before, company="", period=period)
+
+
+def _experience_with_known_company_context(before: str, period: str) -> CVExperience | None:
+    matches = list(_KNOWN_COMPANY_CONTEXT_RE.finditer(before))
+    if not matches:
+        return None
+    match = matches[-1]
+    title = _clean(before[: match.start()])
+    company = _clean(match.group("company"))
+    if not title or not company:
+        return None
+    return CVExperience(title=title, company=company, period=period)
 
 
 def _experience_from_adjacent_lines(previous: str, current: str) -> CVExperience | None:
