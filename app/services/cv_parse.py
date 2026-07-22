@@ -22,11 +22,15 @@ MAX_CV_FILE_SIZE_BYTES = 10 * 1024 * 1024
 ENABLE_CV_PARSE_TEST_ERRORS_ENV = "ENABLE_CV_PARSE_TEST_ERRORS"
 CV_PARSE_TEST_ERROR_500 = "500"
 
+_MONTH_RE = (
+    r"janvier|janv?\.?|f[eé]vrier|f[eé]vr?\.?|mars|avril|avr\.?|mai|juin|"
+    r"juillet|juil?\.?|ao[uû]t|septembre|sept?\.?|octobre|oct\.?|novembre|nov\.?|d[eé]cembre|d[eé]c\.?"
+)
 _PERIOD_RE = re.compile(
     r"(?ix)"
     r"(?:"
     r"(?:\d{1,2}[\s./-])?\d{1,2}[\s./-]\d{2,4}(?!\s*%)"
-    r"|(?:janv?\.?|f[eé]vr?\.?|mars|avr(?:il)?\.?|mai|juin|juil?\.?|ao[uû]t|sept?\.?|oct(?:obre)?\.?|nov(?:embre)?\.?|d[eé]c(?:embre)?\.?)\s+\d{4}"
+    rf"|(?:depuis\s+)?(?:{_MONTH_RE})\s+\d{{4}}"
     r"|\d{4}\s*(?:[–—-]|à|au)\s*(?:\d{4}|aujourd'hui|aujourd’hui|présent|present|now)"
     r"|\d{4}\s*(?:[–—-]|à|au)\s*\d{4}"
     r"|\d{4}"
@@ -84,6 +88,21 @@ def parse_cv_file(*, filename: str, content_type: str, file_bytes: bytes) -> CVP
     del filename
     ensure_cv_file_size(file_bytes)
 
+    if content_type in SUPPORTED_IMAGE_TYPES:
+        try:
+            extracted_text = _extract_text_from_image(file_bytes)
+        except RuntimeError as exc:
+            raise HTTPException(status_code=500, detail=str(exc)) from exc
+        except Exception as exc:
+            raise HTTPException(status_code=422, detail="The image could not be read") from exc
+
+        if not extracted_text.strip():
+            raise HTTPException(
+                status_code=422,
+                detail="No extractable text was found in the image. Upload a readable CV image.",
+            )
+        return _response_from_extracted_text(extracted_text)
+
     if content_type != "application/pdf":
         raise HTTPException(
             status_code=422,
@@ -100,12 +119,40 @@ def parse_cv_file(*, filename: str, content_type: str, file_bytes: bytes) -> CVP
             status_code=422,
             detail="No extractable text was found in the PDF. Upload a text-based PDF.",
         )
-    return parse_cv_text(extracted_text)
+    return _response_from_extracted_text(extracted_text)
 
 
 def _extract_text_from_pdf(file_bytes: bytes) -> str:
     reader = PdfReader(BytesIO(file_bytes))
     return "\n".join(page.extract_text() or "" for page in reader.pages).strip()
+
+
+def _extract_text_from_image(file_bytes: bytes) -> str:
+    try:
+        from PIL import Image, ImageOps
+        import pytesseract
+    except ImportError as exc:
+        raise RuntimeError("OCR dependencies are not installed") from exc
+
+    ocr_language = os.getenv("CV_PARSE_OCR_LANG", "fra+eng")
+    try:
+        image = Image.open(BytesIO(file_bytes))
+        image = ImageOps.autocontrast(image.convert("L"))
+        return pytesseract.image_to_string(image, lang=ocr_language, config="--psm 6").strip()
+    except RuntimeError:
+        raise
+    except Exception as exc:
+        raise RuntimeError("OCR engine is not available or failed to process the image") from exc
+
+
+def _response_from_extracted_text(extracted_text: str) -> CVParseResponse:
+    result = parse_cv_text(extracted_text)
+    if not result.experiences:
+        raise HTTPException(
+            status_code=422,
+            detail="No exploitable professional experiences were found in this document. Verify that it is a readable CV.",
+        )
+    return result
 
 
 def parse_cv_text(extracted_text: str) -> CVParseResponse:
@@ -126,11 +173,11 @@ def parse_cv_text(extracted_text: str) -> CVParseResponse:
         else:
             candidate = _experience_from_line(line)
         if index > 0 and (candidate is None or (not candidate.company and ":" not in line)):
-            previous = experience_lines[index - 1]
+            previous = _previous_experience_line(experience_lines, index)
+            if previous is None:
+                previous = experience_lines[index - 1]
             if line.lstrip().startswith("("):
                 previous = f"{previous} {line}"
-            elif "(" in previous and index > 1 and not line.lstrip().startswith("-"):
-                previous = f"{experience_lines[index - 2]} {previous}"
             adjacent = _experience_from_adjacent_lines(previous, line)
             if adjacent is not None:
                 candidate = adjacent
@@ -219,6 +266,8 @@ def _experience_from_line(line: str) -> CVExperience | None:
     parts = _SEPARATOR_RE.split(before, maxsplit=1)
     if len(parts) == 2:
         left, right = map(_clean, parts)
+        if _looks_like_role_title(left):
+            return CVExperience(title=left, company=right, period=period)
         if _looks_like_company(left) and not _looks_like_company(right):
             return CVExperience(title=right, company=left, period=period)
         return CVExperience(title=left, company=right, period=period)
@@ -275,7 +324,15 @@ def _experience_from_adjacent_lines(previous: str, current: str) -> CVExperience
         parts = _SEPARATOR_RE.split(previous, maxsplit=1)
         if len(parts) != 2:
             return None
-        company, title = map(_clean, parts)
+        left, right = map(_clean, parts)
+        if _looks_like_role_title(right) and not _looks_like_role_title(left):
+            title, company = right, left
+        elif _looks_like_role_title(left):
+            title, company = left, right
+        elif _looks_like_company(left) and not _looks_like_company(right):
+            company, title = left, right
+        else:
+            title, company = left, right
     else:
         title, company = current_without_period, _clean(previous)
     if not title:
@@ -283,11 +340,25 @@ def _experience_from_adjacent_lines(previous: str, current: str) -> CVExperience
     return CVExperience(title=title, company=company, period=period)
 
 
+def _previous_experience_line(lines: list[str], current_index: int) -> str | None:
+    for line in reversed(lines[:current_index]):
+        stripped = line.strip()
+        if not stripped or stripped.startswith(("-", "•", "●")):
+            continue
+        if _has_period(stripped):
+            continue
+        if stripped.endswith("."):
+            continue
+        if _looks_like_company(stripped) or _SEPARATOR_RE.search(stripped) or _looks_like_role_title(stripped):
+            return stripped
+    return None
+
+
 def _period_from_match(line: str, match: re.Match[str]) -> str:
     period = match.group(0)
     suffix = line[match.end() :]
     continuation = re.match(
-        r"\s*(?:-|à|au)\s*(?:(?:[A-Za-zÀ-ÿ]+\.?)\s+\d{4}|(?:\d{1,2}[\s./-])?\d{1,2}[\s./-]\d{2,4}|\d{4}|aujourd'hui|aujourd’hui|présent|present|now)",
+        rf"\s*(?:-|à|au)\s*(?:(?:{_MONTH_RE})\s+\d{{4}}|(?:\d{{1,2}}[\s./-])?\d{{1,2}}[\s./-]\d{{2,4}}|\d{{4}}|aujourd'hui|aujourd’hui|présent|present|now)",
         suffix,
         flags=re.IGNORECASE,
     )
@@ -299,6 +370,19 @@ def _period_from_match(line: str, match: re.Match[str]) -> str:
 def _looks_like_company(value: str) -> bool:
     words = [word for word in value.split() if word]
     return bool(words) and (value.upper() == value or any(token in value.lower() for token in ("sarl", "sas", "airbus", "capgemini")))
+
+
+def _looks_like_role_title(value: str) -> bool:
+    return bool(
+        re.search(
+            r"(?i)\b("
+            r"assistant(?:e)?|administrati(?:f|ve)|coordina(?:teur|trice)|consultant(?:e)?|"
+            r"d[eé]veloppeur|d[eé]veloppeuse|employ[eé]e?|technicien(?:ne)?|ing[eé]nieur(?:e)?|"
+            r"responsable|chef(?:fe)?|manager|lead|testeur|testeuse"
+            r")\b",
+            value,
+        )
+    )
 
 
 def _clean(value: str) -> str:

@@ -210,7 +210,9 @@ Execution model:
 - `/cv/parse` is deterministic and does not call OpenAI
 - `/cv/parse` does not consume OpenAI tokens
 - text-based PDFs are parsed using local text extraction and rules
-- image-only PDFs and image uploads currently return `422` because no OCR engine is enabled in the deployed backend
+- JPEG and PNG CV images are parsed with classic OCR when the backend OCR engine is available
+- scanned PDFs are not converted to images yet and currently return `422` when no PDF text is extractable
+- image OCR requires the Python OCR dependencies and a Tesseract runtime available in the deployed backend
 
 Response `200`
 
@@ -240,14 +242,16 @@ Validation and error responses:
 - `415` when the uploaded file type is not supported
 - `413` when the uploaded file exceeds the maximum size
 - `422` when the PDF contains no extractable text
-- `422` when an image upload is received and OCR is unavailable
+- `422` when an image contains no extractable text
+- `422` when no exploitable professional experiences are found after PDF text extraction or image OCR
+- `500` when OCR dependencies or the OCR runtime are not available in the deployed backend
 - `500` when `X-CV-Parse-Test-Error: 500` is sent and `ENABLE_CV_PARSE_TEST_ERRORS=true` is enabled in a controlled local or staging environment
 
 Known limitations:
 
-- the current deterministic parser supports text-based PDFs only
-- scanned PDFs and standalone image CVs require a future classic OCR integration
-- extraction is rule-based and may return an empty `experiences` array when the CV layout does not expose recognizable experience headings and periods
+- the current deterministic parser supports text-based PDFs and JPEG/PNG CV images
+- scanned PDFs require a future PDF-page-to-image OCR integration
+- extraction is rule-based and may return `422` when the CV layout does not expose recognizable experience headings and periods
 - parsing is intended as prefill; `/analyze` remains the only V1 endpoint that uses AI for strategic interview preparation
 - this endpoint extracts only structured experience rows for now; it does not return skills, education, summary, or full CV content
 - this endpoint is intended to support a staged frontend migration from local parsing to backend parsing
@@ -256,6 +260,10 @@ Controlled error testing:
 
 - see `docs/cv-parse-error-testing.md`
 - do not enable forced `/cv/parse` errors in production
+
+OCR deployment requirements:
+
+- see `docs/cv-parse-ocr-deployment.md`
 
 ## CRUD resource pattern
 

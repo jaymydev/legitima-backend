@@ -40,14 +40,58 @@ def test_cv_parse_can_force_500_when_test_errors_are_enabled(monkeypatch) -> Non
     assert response.json() == {"detail": "Forced /cv/parse test error"}
 
 
-def test_cv_parse_rejects_images_without_using_openai() -> None:
+def test_cv_parse_extracts_experiences_from_image_ocr(monkeypatch) -> None:
+    monkeypatch.setattr(
+        cv_parse_service,
+        "_extract_text_from_image",
+        lambda _: """
+        Experience
+        PLM Engineer - Confidential Program | Jan 2026 - Present
+        """,
+    )
+
+    response = TestClient(app).post(
+        "/cv/parse",
+        files={"file": ("resume.jpg", io.BytesIO(b"fake-image"), "image/jpeg")},
+    )
+
+    assert response.status_code == 200
+    assert response.json() == {
+        "experiences": [
+            {
+                "title": "PLM Engineer",
+                "company": "Confidential Program",
+                "period": "Jan 2026 - Present",
+            }
+        ]
+    }
+
+
+def test_cv_parse_rejects_image_without_extractable_text(monkeypatch) -> None:
+    monkeypatch.setattr(cv_parse_service, "_extract_text_from_image", lambda _: "")
+
     response = TestClient(app).post(
         "/cv/parse",
         files={"file": ("resume.png", io.BytesIO(b"fake-image"), "image/png")},
     )
 
     assert response.status_code == 422
-    assert "text-based PDF" in response.json()["detail"]
+    assert "No extractable text was found in the image" in response.json()["detail"]
+
+
+def test_cv_parse_returns_500_when_ocr_engine_is_unavailable(monkeypatch) -> None:
+    def raise_ocr_error(_: bytes) -> str:
+        raise RuntimeError("OCR dependencies are not installed")
+
+    monkeypatch.setattr(cv_parse_service, "_extract_text_from_image", raise_ocr_error)
+
+    response = TestClient(app).post(
+        "/cv/parse",
+        files={"file": ("resume.png", io.BytesIO(b"fake-image"), "image/png")},
+    )
+
+    assert response.status_code == 500
+    assert response.json() == {"detail": "OCR dependencies are not installed"}
 
 
 def test_cv_parse_extracts_structured_experience_and_excludes_other_sections() -> None:
@@ -152,6 +196,53 @@ def test_cv_parse_joins_company_mission_continuation_lines() -> None:
                 "company": "Accenture (Mission Airbus - Customer Services)",
                 "period": "Janv. 2023 - Nov. 2024",
             }
+        ]
+    }
+
+
+def test_cv_parse_handles_title_company_then_period_lines_with_locations() -> None:
+    result = cv_parse_service.parse_cv_text(
+        """
+        EXPÉRIENCES PROFESSIONNELLES
+        COORDINATRICE D'EXPLOITATION - OCEA SMART BUILDING
+        Depuis septembre 2020 - L'Union (31)
+        Pilotage administratif et opérationnel des activités.
+        ASSISTANTE ADMINISTRATION DES VENTES - LESER Sarl - L'Union (31)
+        Juillet 2014 - Juin 2017
+        Gestion des commandes, suivi clients, traitement administratif.
+        EMPLOYÉE ADMINISTRATIVE - TFN Sud-Ouest - Toulouse (31)
+        Septembre 2012 - Juillet 2014
+        Support administratif, gestion des dossiers.
+        TECHNICIENNE DE PAIE - OPTINERIS - Tulle (19)
+        Mai 2018 - Octobre 2018 (CDD)
+        Réalisation des travaux de paie.
+        FORMATIONS
+        PRINCE2 FOUNDATION
+        """
+    )
+
+    assert result.model_dump() == {
+        "experiences": [
+            {
+                "title": "COORDINATRICE D'EXPLOITATION",
+                "company": "OCEA SMART BUILDING",
+                "period": "Depuis septembre 2020",
+            },
+            {
+                "title": "ASSISTANTE ADMINISTRATION DES VENTES",
+                "company": "LESER Sarl - L'Union (31)",
+                "period": "Juillet 2014 - Juin 2017",
+            },
+            {
+                "title": "EMPLOYÉE ADMINISTRATIVE",
+                "company": "TFN Sud-Ouest - Toulouse (31)",
+                "period": "Septembre 2012 - Juillet 2014",
+            },
+            {
+                "title": "TECHNICIENNE DE PAIE",
+                "company": "OPTINERIS - Tulle (19)",
+                "period": "Mai 2018 - Octobre 2018",
+            },
         ]
     }
 
