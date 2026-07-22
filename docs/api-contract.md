@@ -185,6 +185,12 @@ Required headers:
 
 - `Content-Type: multipart/form-data`
 
+Optional staging/local test header:
+
+- `X-CV-Parse-Test-Error: 500`
+
+This header is ignored unless `ENABLE_CV_PARSE_TEST_ERRORS=true` is configured on the backend. It exists only to validate frontend error handling in controlled local or staging environments.
+
 Multipart fields:
 
 - `file`: required uploaded file
@@ -235,6 +241,7 @@ Validation and error responses:
 - `413` when the uploaded file exceeds the maximum size
 - `422` when the PDF contains no extractable text
 - `422` when an image upload is received and OCR is unavailable
+- `500` when `X-CV-Parse-Test-Error: 500` is sent and `ENABLE_CV_PARSE_TEST_ERRORS=true` is enabled in a controlled local or staging environment
 
 Known limitations:
 
@@ -244,6 +251,11 @@ Known limitations:
 - parsing is intended as prefill; `/analyze` remains the only V1 endpoint that uses AI for strategic interview preparation
 - this endpoint extracts only structured experience rows for now; it does not return skills, education, summary, or full CV content
 - this endpoint is intended to support a staged frontend migration from local parsing to backend parsing
+
+Controlled error testing:
+
+- see `docs/cv-parse-error-testing.md`
+- do not enable forced `/cv/parse` errors in production
 
 ## CRUD resource pattern
 
