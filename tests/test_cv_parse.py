@@ -435,6 +435,54 @@ def test_cv_parse_handles_title_company_then_period_lines_with_locations() -> No
     }
 
 
+def test_cv_parse_cleans_ocr_noise_and_reattaches_leading_month_fragment() -> None:
+    result = cv_parse_service.parse_cv_text(
+        """
+        EXPÉRIENCES PROFESSIONNELLES
+        + COORDINATRICE D'EXPLOITATION - OCEA SMART BUILDING
+        Depuis septembre 2020
+        AMBASSADRICE DES VALEURS - OCEA - 2022 - 2025
+        + ASSISTANTE ADMINISTRATIVE INDÉPENDANTE - AD 2 Assist'U - Brive-la-Gaillarde
+        Depuis janvier 2020
+        © ASSISTANTE ADMINISTRATION DES VENTES - LESER Sarl - L'Union (31)
+        Juillet 2014 - Juin 2017
+        eptembre - © EMPLOYÉE ADMINISTRATIVE - TFN Sud-Ouest - Toulouse (31) - 2012 - Juillet 2014
+        FORMATIONS
+        PRINCE2 FOUNDATION
+        """
+    )
+
+    assert result.model_dump() == {
+        "experiences": [
+            {
+                "title": "COORDINATRICE D'EXPLOITATION",
+                "company": "OCEA SMART BUILDING",
+                "period": "Depuis septembre 2020",
+            },
+            {
+                "title": "AMBASSADRICE DES VALEURS",
+                "company": "OCEA",
+                "period": "2022 - 2025",
+            },
+            {
+                "title": "ASSISTANTE ADMINISTRATIVE INDÉPENDANTE",
+                "company": "AD 2 Assist'U - Brive-la-Gaillarde",
+                "period": "Depuis janvier 2020",
+            },
+            {
+                "title": "ASSISTANTE ADMINISTRATION DES VENTES",
+                "company": "LESER Sarl - L'Union (31)",
+                "period": "Juillet 2014 - Juin 2017",
+            },
+            {
+                "title": "EMPLOYÉE ADMINISTRATIVE",
+                "company": "TFN Sud-Ouest - Toulouse (31)",
+                "period": "Septembre 2012 - Juillet 2014",
+            },
+        ]
+    }
+
+
 def test_cv_parse_rejects_pdf_without_extractable_text(monkeypatch) -> None:
     monkeypatch.setattr(cv_parse_service, "_extract_text_from_pdf", lambda _: "")
 
