@@ -109,6 +109,28 @@ def test_cv_parse_handles_english_role_lines_without_promoting_bullets() -> None
     }
 
 
+def test_cv_parse_joins_company_mission_continuation_lines() -> None:
+    result = cv_parse_service.parse_cv_text(
+        """
+        EXPERIENCES PROFESSIONNELLES
+        Consultante Senior – Transition & Team Lead  Accenture (Mission Airbus
+        — Customer Services) | Janv. 2023 – Nov. 2024
+        ●Contexte :  Cadrage, optimisation et transfert d'activités critiques vers des
+        équipes offshore
+        """
+    )
+
+    assert result.model_dump() == {
+        "experiences": [
+            {
+                "title": "Consultante Senior - Transition & Team Lead",
+                "company": "Accenture (Mission Airbus - Customer Services)",
+                "period": "Janv. 2023 - Nov. 2024",
+            }
+        ]
+    }
+
+
 def test_cv_parse_rejects_pdf_without_extractable_text(monkeypatch) -> None:
     monkeypatch.setattr(cv_parse_service, "_extract_text_from_pdf", lambda _: "")
 
