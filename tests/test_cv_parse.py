@@ -259,6 +259,22 @@ def test_cv_parse_rejects_pdf_without_extractable_text(monkeypatch) -> None:
     assert "text-based PDF" in response.json()["detail"]
 
 
+def test_cv_parse_rejects_pdf_without_exploitable_experiences(monkeypatch) -> None:
+    monkeypatch.setattr(
+        cv_parse_service,
+        "_extract_text_from_pdf",
+        lambda _: "This is a readable document, but it is not a CV.",
+    )
+
+    response = TestClient(app).post(
+        "/cv/parse",
+        files={"file": ("document.pdf", io.BytesIO(b"%PDF-1.4 fake"), "application/pdf")},
+    )
+
+    assert response.status_code == 422
+    assert "No exploitable professional experiences" in response.json()["detail"]
+
+
 def test_cv_parse_rejects_oversized_files() -> None:
     oversized_bytes = b"a" * (cv_parse_service.MAX_CV_FILE_SIZE_BYTES + 1)
     response = TestClient(app).post(
