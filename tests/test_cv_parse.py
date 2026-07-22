@@ -483,6 +483,28 @@ def test_cv_parse_cleans_ocr_noise_and_reattaches_leading_month_fragment() -> No
     }
 
 
+def test_cv_parse_reattaches_split_month_fragment_from_period_line() -> None:
+    result = cv_parse_service.parse_cv_text(
+        """
+        EXPÉRIENCES PROFESSIONNELLES
+        EMPLOYÉE ADMINISTRATIVE - TFN Sud-Ouest - Toulouse (31)
+        eptembre 2012 - Juillet 2014
+        FORMATIONS
+        PRINCE2 FOUNDATION
+        """
+    )
+
+    assert result.model_dump() == {
+        "experiences": [
+            {
+                "title": "EMPLOYÉE ADMINISTRATIVE",
+                "company": "TFN Sud-Ouest - Toulouse (31)",
+                "period": "Septembre 2012 - Juillet 2014",
+            }
+        ]
+    }
+
+
 def test_cv_parse_rejects_pdf_without_extractable_text(monkeypatch) -> None:
     monkeypatch.setattr(cv_parse_service, "_extract_text_from_pdf", lambda _: "")
 
