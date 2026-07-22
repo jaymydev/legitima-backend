@@ -26,6 +26,7 @@ MAX_CV_FILE_SIZE_BYTES = 10 * 1024 * 1024
 CV_PARSE_OCR_TIMEOUT_SECONDS = 20
 CV_PARSE_OCR_MAX_IMAGE_DIMENSION = 2400
 CV_PARSE_OCR_SIDEBAR_RATIO = 0.34
+CV_PARSE_MAX_RETURNED_EXPERIENCES = 5
 ENABLE_CV_PARSE_TEST_ERRORS_ENV = "ENABLE_CV_PARSE_TEST_ERRORS"
 CV_PARSE_TEST_ERROR_500 = "500"
 
@@ -64,6 +65,28 @@ _CANONICAL_MONTHS = (
     "novembre",
     "decembre",
 )
+_MONTH_VALUES = {
+    "janvier": 1,
+    "janv": 1,
+    "fevrier": 2,
+    "fevr": 2,
+    "mars": 3,
+    "avril": 4,
+    "avr": 4,
+    "mai": 5,
+    "juin": 6,
+    "juillet": 7,
+    "juil": 7,
+    "aout": 8,
+    "septembre": 9,
+    "sept": 9,
+    "octobre": 10,
+    "oct": 10,
+    "novembre": 11,
+    "nov": 11,
+    "decembre": 12,
+    "dec": 12,
+}
 
 
 class CVExperience(BaseModel):
@@ -357,7 +380,7 @@ def parse_cv_text(extracted_text: str) -> CVParseResponse:
         if candidate is not None:
             experiences.append(candidate)
 
-    return CVParseResponse(experiences=_deduplicate(experiences))
+    return CVParseResponse(experiences=_sort_and_limit_experiences(_deduplicate(experiences)))
 
 
 def _normalise_lines(text: str) -> list[str]:
@@ -601,3 +624,69 @@ def _deduplicate(experiences: list[CVExperience]) -> list[CVExperience]:
             seen.add(key)
             result.append(experience)
     return result
+
+
+def _sort_and_limit_experiences(experiences: list[CVExperience]) -> list[CVExperience]:
+    ranked = sorted(
+        experiences,
+        key=lambda experience: _experience_sort_key(experience.period),
+        reverse=True,
+    )
+    return ranked[:CV_PARSE_MAX_RETURNED_EXPERIENCES]
+
+
+def _experience_sort_key(period: str) -> tuple[int, int, int, int]:
+    normalized = _heading_key(period).replace(" ", "")
+    if normalized.startswith("depuis"):
+        start = _first_month_year(period)
+        if start is None:
+            return (9999, 12, 9999, 12)
+        return (9999, 12, start[0], start[1])
+
+    span = _month_year_span(period)
+    if span is not None:
+        start, end = span
+        return (end[0], end[1], start[0], start[1])
+
+    years = [int(year) for year in re.findall(r"\b\d{4}\b", period)]
+    if years:
+        end_year = max(years)
+        start_year = min(years)
+        return (end_year, 12, start_year, 1)
+
+    return (0, 0, 0, 0)
+
+
+def _month_year_span(period: str) -> tuple[tuple[int, int], tuple[int, int]] | None:
+    month_years = _extract_month_years(period)
+    if not month_years:
+        return None
+    if len(month_years) == 1:
+        return month_years[0], month_years[0]
+    return month_years[0], month_years[-1]
+
+
+def _first_month_year(period: str) -> tuple[int, int] | None:
+    month_years = _extract_month_years(period)
+    if month_years:
+        return month_years[0]
+    years = [int(year) for year in re.findall(r"\b\d{4}\b", period)]
+    if years:
+        return (years[0], 1)
+    return None
+
+
+def _extract_month_years(period: str) -> list[tuple[int, int]]:
+    matches = re.findall(rf"(?i)\b({_MONTH_RE})\s+(\d{{4}})\b", period)
+    result: list[tuple[int, int]] = []
+    for month_name, year in matches:
+        month_value = _month_value(month_name)
+        if month_value is None:
+            continue
+        result.append((int(year), month_value))
+    return result
+
+
+def _month_value(value: str) -> int | None:
+    normalized = _heading_key(value).replace(" ", "")
+    return _MONTH_VALUES.get(normalized)
