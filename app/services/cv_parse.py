@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import os
 import re
 import unicodedata
 from io import BytesIO
@@ -18,6 +19,8 @@ SUPPORTED_CONTENT_TYPES = {
     *SUPPORTED_IMAGE_TYPES,
 }
 MAX_CV_FILE_SIZE_BYTES = 10 * 1024 * 1024
+ENABLE_CV_PARSE_TEST_ERRORS_ENV = "ENABLE_CV_PARSE_TEST_ERRORS"
+CV_PARSE_TEST_ERROR_500 = "500"
 
 _PERIOD_RE = re.compile(
     r"(?ix)"
@@ -66,6 +69,14 @@ def ensure_cv_file_size(file_bytes: bytes) -> None:
             status_code=413,
             detail=f"CV file is too large. Maximum size is {MAX_CV_FILE_SIZE_BYTES} bytes",
         )
+
+
+def maybe_raise_cv_parse_test_error(test_error: str | None) -> None:
+    if (test_error or "").strip() != CV_PARSE_TEST_ERROR_500:
+        return
+    if os.getenv(ENABLE_CV_PARSE_TEST_ERRORS_ENV, "").strip().lower() != "true":
+        return
+    raise HTTPException(status_code=500, detail="Forced /cv/parse test error")
 
 
 def parse_cv_file(*, filename: str, content_type: str, file_bytes: bytes) -> CVParseResponse:

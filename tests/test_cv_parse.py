@@ -15,6 +15,31 @@ def test_cv_parse_rejects_unsupported_file_type() -> None:
     assert response.status_code == 415
 
 
+def test_cv_parse_test_error_header_is_ignored_by_default(monkeypatch) -> None:
+    monkeypatch.delenv("ENABLE_CV_PARSE_TEST_ERRORS", raising=False)
+
+    response = TestClient(app).post(
+        "/cv/parse",
+        headers={"X-CV-Parse-Test-Error": "500"},
+        files={"file": ("resume.txt", io.BytesIO(b"hello"), "text/plain")},
+    )
+
+    assert response.status_code == 415
+
+
+def test_cv_parse_can_force_500_when_test_errors_are_enabled(monkeypatch) -> None:
+    monkeypatch.setenv("ENABLE_CV_PARSE_TEST_ERRORS", "true")
+
+    response = TestClient(app).post(
+        "/cv/parse",
+        headers={"X-CV-Parse-Test-Error": "500"},
+        files={"file": ("resume.txt", io.BytesIO(b"hello"), "text/plain")},
+    )
+
+    assert response.status_code == 500
+    assert response.json() == {"detail": "Forced /cv/parse test error"}
+
+
 def test_cv_parse_rejects_images_without_using_openai() -> None:
     response = TestClient(app).post(
         "/cv/parse",
