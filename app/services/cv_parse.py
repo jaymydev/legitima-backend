@@ -5,6 +5,7 @@ import re
 import unicodedata
 from io import BytesIO
 from time import perf_counter
+from typing import Any
 
 from fastapi import HTTPException
 from pydantic import BaseModel, ConfigDict
@@ -24,6 +25,7 @@ SUPPORTED_CONTENT_TYPES = {
 MAX_CV_FILE_SIZE_BYTES = 10 * 1024 * 1024
 CV_PARSE_OCR_TIMEOUT_SECONDS = 20
 CV_PARSE_OCR_MAX_IMAGE_DIMENSION = 2400
+CV_PARSE_OCR_SIDEBAR_RATIO = 0.34
 ENABLE_CV_PARSE_TEST_ERRORS_ENV = "ENABLE_CV_PARSE_TEST_ERRORS"
 CV_PARSE_TEST_ERROR_500 = "500"
 
@@ -180,7 +182,7 @@ def _extract_text_from_pdf(file_bytes: bytes) -> str:
 
 def _extract_text_from_image(file_bytes: bytes) -> str:
     try:
-        from PIL import Image, ImageOps
+        from PIL import Image, ImageOps, ImageStat
         import pytesseract
     except ImportError as exc:
         raise RuntimeError("OCR dependencies are not installed") from exc
@@ -202,17 +204,100 @@ def _extract_text_from_image(file_bytes: bytes) -> str:
             image.size != (original_width, original_height),
         )
         image = ImageOps.autocontrast(image.convert("L"))
-        return pytesseract.image_to_string(
-            image,
-            lang=ocr_language,
-            # Automatic page segmentation preserves the reading order of full CV pages.
-            config="--psm 3",
-            timeout=CV_PARSE_OCR_TIMEOUT_SECONDS,
-        ).strip()
+        attempts = _build_ocr_attempts(image, image_stat_module=ImageStat)
+        return _run_ocr_attempts(
+            pytesseract_module=pytesseract,
+            attempts=attempts,
+            language=ocr_language,
+            timeout_seconds=CV_PARSE_OCR_TIMEOUT_SECONDS,
+        )
     except RuntimeError:
         raise
     except Exception as exc:
         raise RuntimeError("OCR engine is not available or failed to process the image") from exc
+
+
+def _build_ocr_attempts(image: Any, *, image_stat_module: Any) -> list[dict[str, Any]]:
+    attempts: list[dict[str, Any]] = []
+    if _has_dark_left_sidebar(image, image_stat_module=image_stat_module):
+        split_x = max(1, int(image.width * CV_PARSE_OCR_SIDEBAR_RATIO))
+        attempts.append(
+            {
+                "label": "main_column",
+                "image": image.crop((split_x, 0, image.width, image.height)),
+                "config": "--psm 4",
+            }
+        )
+    attempts.append(
+        {
+            "label": "full_page",
+            "image": image,
+            "config": "--psm 3",
+        }
+    )
+    return attempts
+
+
+def _has_dark_left_sidebar(image: Any, *, image_stat_module: Any) -> bool:
+    if image.width < 800 or image.height < 1000:
+        return False
+    split_x = max(1, int(image.width * CV_PARSE_OCR_SIDEBAR_RATIO))
+    left = image.crop((0, 0, split_x, image.height))
+    right = image.crop((split_x, 0, image.width, image.height))
+    left_mean = image_stat_module.Stat(left).mean[0]
+    right_mean = image_stat_module.Stat(right).mean[0]
+    return (right_mean - left_mean) >= 45
+
+
+def _run_ocr_attempts(
+    *,
+    pytesseract_module: Any,
+    attempts: list[dict[str, Any]],
+    language: str,
+    timeout_seconds: int,
+) -> str:
+    started_at = perf_counter()
+    last_error: RuntimeError | None = None
+
+    for attempt in attempts:
+        remaining_seconds = max(1, timeout_seconds - int(perf_counter() - started_at))
+        attempt_started_at = perf_counter()
+        try:
+            text = pytesseract_module.image_to_string(
+                attempt["image"],
+                lang=language,
+                config=attempt["config"],
+                timeout=remaining_seconds,
+            ).strip()
+            logger.info(
+                "CV OCR attempt completed label=%s width=%d height=%d config=%s duration_ms=%d remaining_budget_s=%d has_text=%s",
+                attempt["label"],
+                attempt["image"].width,
+                attempt["image"].height,
+                attempt["config"],
+                _elapsed_ms(attempt_started_at),
+                remaining_seconds,
+                bool(text),
+            )
+            if text:
+                return text
+        except RuntimeError as exc:
+            last_error = exc
+            logger.warning(
+                "CV OCR attempt failed label=%s width=%d height=%d config=%s duration_ms=%d error=%s",
+                attempt["label"],
+                attempt["image"].width,
+                attempt["image"].height,
+                attempt["config"],
+                _elapsed_ms(attempt_started_at),
+                str(exc),
+            )
+            if "timeout" not in str(exc).lower():
+                raise
+
+    if last_error is not None:
+        raise last_error
+    return ""
 
 
 def _response_from_extracted_text(extracted_text: str) -> CVParseResponse:
