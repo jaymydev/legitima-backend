@@ -3,3 +3,5 @@ uvicorn==0.30.6
 pytest==8.3.3
 supabase==2.6.0
 openai==2.24.0
+python-multipart==0.0.9
+pypdf==4.3.1
