@@ -119,6 +119,91 @@ def test_cv_parse_downscales_large_images_before_ocr(monkeypatch) -> None:
     assert observed == {"size": (2400, 1800), "timeout": 20, "config": "--psm 3"}
 
 
+def test_cv_parse_targets_main_column_for_sidebar_cv_layout(monkeypatch) -> None:
+    image_bytes = io.BytesIO()
+    image = Image.new("RGB", (1054, 1492), "white")
+    for x in range(358):
+        for y in range(1492):
+            image.putpixel((x, y), (12, 41, 79))
+    image.save(image_bytes, format="PNG")
+    observed_calls = []
+
+    def fake_image_to_string(image, **kwargs):
+        observed_calls.append(
+            {
+                "size": image.size,
+                "timeout": kwargs["timeout"],
+                "config": kwargs["config"],
+            }
+        )
+        return "EXPÉRIENCES PROFESSIONNELLES\nCOORDINATRICE D'EXPLOITATION - OCEA SMART BUILDING\nDepuis septembre 2020"
+
+    monkeypatch.setattr(pytesseract, "image_to_string", fake_image_to_string)
+
+    extracted_text = cv_parse_service._extract_text_from_image(image_bytes.getvalue())
+
+    assert "COORDINATRICE D'EXPLOITATION" in extracted_text
+    assert observed_calls == [
+        {
+            "size": (696, 1492),
+            "timeout": 20,
+            "config": "--psm 4",
+        }
+    ]
+
+
+def test_cv_parse_falls_back_to_full_page_after_sidebar_timeout(monkeypatch) -> None:
+    image_bytes = io.BytesIO()
+    image = Image.new("RGB", (1054, 1492), "white")
+    for x in range(358):
+        for y in range(1492):
+            image.putpixel((x, y), (12, 41, 79))
+    image.save(image_bytes, format="PNG")
+    observed_configs = []
+
+    def fake_image_to_string(image, **kwargs):
+        observed_configs.append(kwargs["config"])
+        if kwargs["config"] == "--psm 4":
+            raise RuntimeError("Tesseract process timeout")
+        return "Experience\nPLM Engineer - Confidential Program | Jan 2026 - Present"
+
+    monkeypatch.setattr(pytesseract, "image_to_string", fake_image_to_string)
+
+    extracted_text = cv_parse_service._extract_text_from_image(image_bytes.getvalue())
+
+    assert "PLM Engineer" in extracted_text
+    assert observed_configs == ["--psm 4", "--psm 3"]
+
+
+def test_cv_parse_sidebar_strategy_prevents_observed_422_to_500_regression(monkeypatch) -> None:
+    image_bytes = io.BytesIO()
+    image = Image.new("RGB", (1054, 1492), "white")
+    for x in range(358):
+        for y in range(1492):
+            image.putpixel((x, y), (12, 41, 79))
+    image.save(image_bytes, format="PNG")
+
+    def fake_image_to_string(current_image, **kwargs):
+        if kwargs["config"] == "--psm 4":
+            return "EXPÉRIENCES PROFESSIONNELLES\nCOORDINATRICE D'EXPLOITATION - OCEA SMART BUILDING\nDepuis septembre 2020"
+        raise RuntimeError("Tesseract process timeout")
+
+    monkeypatch.setattr(pytesseract, "image_to_string", fake_image_to_string)
+
+    extracted_text = cv_parse_service._extract_text_from_image(image_bytes.getvalue())
+    parsed = cv_parse_service._response_from_extracted_text(extracted_text)
+
+    assert parsed.model_dump() == {
+        "experiences": [
+            {
+                "title": "COORDINATRICE D'EXPLOITATION",
+                "company": "OCEA SMART BUILDING",
+                "period": "Depuis septembre 2020",
+            }
+        ]
+    }
+
+
 def test_cv_parse_rejects_image_without_extractable_text(monkeypatch) -> None:
     monkeypatch.setattr(cv_parse_service, "_extract_text_from_image", lambda _: "")
 
@@ -225,6 +310,57 @@ def test_cv_parse_handles_english_role_lines_without_promoting_bullets() -> None
                 "title": "Software & Test Engineer",
                 "company": "Aerospace/Automotive Programs",
                 "period": "2017-2023",
+            },
+        ]
+    }
+
+
+def test_cv_parse_handles_reference_cv_style_experience_blocks() -> None:
+    result = cv_parse_service.parse_cv_text(
+        """
+        EXPÉRIENCES PROFESSIONNELLES
+        COORDINATRICE D'EXPLOITATION - OCEA SMART BUILDING
+        Depuis septembre 2020 - L'Union (31)
+        MISSIONS PRINCIPALES
+        ASSISTANTE ADMINISTRATIVE INDÉPENDANTE - AD 2 Assist'U - Brive-la-Gaillarde
+        Depuis janvier 2020
+        ASSISTANTE ADMINISTRATION DES VENTES - LESER Sarl - L'Union (31)
+        Juillet 2014 - Juin 2017
+        EMPLOYÉE ADMINISTRATIVE - TEN Sud-Ouest - Toulouse (31)
+        Septembre 2012 - Juillet 2014
+        TECHNICIENNE DE PAIE - OPTINERIS - Tulle (19)
+        Mai 2018 - Octobre 2018 (CDD)
+        FORMATIONS
+        DUT GEA
+        """
+    )
+
+    assert result.model_dump() == {
+        "experiences": [
+            {
+                "title": "COORDINATRICE D'EXPLOITATION",
+                "company": "OCEA SMART BUILDING",
+                "period": "Depuis septembre 2020",
+            },
+            {
+                "title": "ASSISTANTE ADMINISTRATIVE INDÉPENDANTE",
+                "company": "AD 2 Assist'U - Brive-la-Gaillarde",
+                "period": "Depuis janvier 2020",
+            },
+            {
+                "title": "ASSISTANTE ADMINISTRATION DES VENTES",
+                "company": "LESER Sarl - L'Union (31)",
+                "period": "Juillet 2014 - Juin 2017",
+            },
+            {
+                "title": "EMPLOYÉE ADMINISTRATIVE",
+                "company": "TEN Sud-Ouest - Toulouse (31)",
+                "period": "Septembre 2012 - Juillet 2014",
+            },
+            {
+                "title": "TECHNICIENNE DE PAIE",
+                "company": "OPTINERIS - Tulle (19)",
+                "period": "Mai 2018 - Octobre 2018",
             },
         ]
     }
