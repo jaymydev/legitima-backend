@@ -5,7 +5,7 @@ Backend initialisé (ultra safe) pour le produit **Legitima**.
 ## ✅ Ce que fournit ce squelette
 - FastAPI opérationnel avec un endpoint de santé.
 - Un endpoint transitoire `POST /analyze` pour le flux iOS onboarding -> analyse -> résultat.
-- Un endpoint déterministe `POST /cv/parse` pour extraire les expériences depuis un CV PDF textuel, sans appel OpenAI.
+- Un endpoint déterministe `POST /cv/parse` pour extraire les expériences depuis un CV PDF textuel ou une image JPEG/PNG via OCR classique, sans appel OpenAI.
 - Structure modulaire alignée sur les concepts métiers.
 - Endpoints CRUD V1 pour les objets métiers (scopés par `user_id`).
 - Gestion d'erreurs centralisée (scaffold) + logging minimal.
@@ -70,6 +70,8 @@ Le contrat d'API actuellement supporté par le backend est documenté dans [docs
 Ce document fait foi pour le V1 backend. Toute route non montée dans [app/main.py](/Users/milehanalivecomm/Documents/Developer/legitima-backend/app/main.py) et non documentée dans ce contrat doit être considérée comme non supportée par le frontend.
 
 Les scénarios contrôlés de validation d'erreurs pour `POST /cv/parse` sont documentés dans [docs/cv-parse-error-testing.md](/Users/milehanalivecomm/Documents/Developer/legitima-backend/docs/cv-parse-error-testing.md).
+
+Les prérequis de déploiement OCR pour les images JPEG/PNG sont documentés dans [docs/cv-parse-ocr-deployment.md](/Users/milehanalivecomm/Documents/Developer/legitima-backend/docs/cv-parse-ocr-deployment.md).
 
 ## 🤖 Analyse V1 transitoire
 Le backend supporte aussi `POST /analyze` comme endpoint transitoire officiel pour le flux iOS actuel `onboarding -> analyse -> résultat`.
