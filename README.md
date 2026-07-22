@@ -5,6 +5,7 @@ Backend initialisé (ultra safe) pour le produit **Legitima**.
 ## ✅ Ce que fournit ce squelette
 - FastAPI opérationnel avec un endpoint de santé.
 - Un endpoint transitoire `POST /analyze` pour le flux iOS onboarding -> analyse -> résultat.
+- Un endpoint `POST /cv/parse` pour extraire les expériences depuis un CV PDF ou image.
 - Structure modulaire alignée sur les concepts métiers.
 - Endpoints CRUD V1 pour les objets métiers (scopés par `user_id`).
 - Gestion d'erreurs centralisée (scaffold) + logging minimal.

@@ -173,6 +173,76 @@ Model validation response `422`
 
 If the OpenAI response does not match the documented output schema, the backend returns a `422` validation error.
 
+## CV parsing endpoint
+
+### `POST /cv/parse`
+
+Dedicated V1 endpoint to extract structured professional experiences from an uploaded CV document.
+
+This endpoint is separate from `POST /analyze`.
+
+Required headers:
+
+- `Content-Type: multipart/form-data`
+
+Multipart fields:
+
+- `file`: required uploaded file
+
+Supported file types:
+
+- `application/pdf`
+- `image/jpeg`
+- `image/png`
+
+Maximum file size:
+
+- `10485760` bytes (`10 MB`)
+
+Environment requirement:
+
+- `OPENAI_API_KEY` must be configured on the backend
+
+Response `200`
+
+```json
+{
+  "experiences": [
+    {
+      "title": "Senior Backend Engineer",
+      "company": "Legitima",
+      "period": "2023-2026"
+    }
+  ]
+}
+```
+
+Response contract notes:
+
+- only `experiences` is returned
+- each item contains exactly `title`, `company`, and `period`
+- values are strings
+- missing values may be returned as empty strings
+- the backend must not invent missing experiences
+
+Validation and error responses:
+
+- `422` when the multipart body is malformed or the `file` field is missing
+- `415` when the uploaded file type is not supported
+- `413` when the uploaded file exceeds the maximum size
+- `422` when a PDF contains no extractable text for the current parser
+- `500` when `OPENAI_API_KEY` is missing
+- `500` when the OpenAI call fails
+- `500` when the OpenAI response cannot be parsed as JSON
+- `422` when the OpenAI response does not match the documented schema
+
+Known limitations:
+
+- text-based PDFs are supported; image-only or scanned PDFs are not currently supported by the PDF extraction path
+- if a scanned CV is available only as an image-based PDF, the frontend should prefer sending a photo or image export instead
+- this endpoint extracts only structured experience rows for now; it does not return skills, education, summary, or full CV content
+- this endpoint is intended to support a staged frontend migration from local parsing to backend parsing
+
 ## CRUD resource pattern
 
 The following resource groups are mounted:
