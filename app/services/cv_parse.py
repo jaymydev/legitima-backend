@@ -48,6 +48,22 @@ _KNOWN_COMPANY_CONTEXT_RE = re.compile(
     r"(?P<company>\baccenture\b(?:\s*\([^)]*\))?)",
     flags=re.IGNORECASE,
 )
+_LEADING_MONTH_FRAGMENT_RE = re.compile(r"^(?P<month>[A-Za-zÀ-ÿ.]+)\s+(?:-|–|—|\|)\s+(?P<rest>.+)$")
+_LEADING_OCR_NOISE_RE = re.compile(r"^[\s+©®*#•●·]+")
+_CANONICAL_MONTHS = (
+    "janvier",
+    "fevrier",
+    "mars",
+    "avril",
+    "mai",
+    "juin",
+    "juillet",
+    "aout",
+    "septembre",
+    "octobre",
+    "novembre",
+    "decembre",
+)
 
 
 class CVExperience(BaseModel):
@@ -406,6 +422,9 @@ def _experience_from_line(line: str) -> CVExperience | None:
     before = _clean(line[: match.start()])
     if not before:
         return None
+    before, period = _reattach_leading_month_fragment(before, period)
+    if not before:
+        return None
 
     known_company = _experience_with_known_company_context(before, period)
     if known_company is not None:
@@ -468,6 +487,7 @@ def _experience_from_adjacent_lines(previous: str, current: str) -> CVExperience
         return None
     current_without_period = _clean(current[: match.start()])
     period = _period_from_match(current, match)
+    current_without_period, period = _reattach_leading_month_fragment(current_without_period, period)
     parts = _SEPARATOR_RE.split(current_without_period, maxsplit=1)
     if len(parts) == 2:
         title, company = map(_clean, parts)
@@ -541,7 +561,32 @@ def _looks_like_role_title(value: str) -> bool:
 
 
 def _clean(value: str) -> str:
-    return re.sub(r"\s+", " ", value).strip(" -|,;:")
+    compact = re.sub(r"\s+", " ", value).strip(" -|,;:")
+    return _LEADING_OCR_NOISE_RE.sub("", compact)
+
+
+def _reattach_leading_month_fragment(before: str, period: str) -> tuple[str, str]:
+    match = _LEADING_MONTH_FRAGMENT_RE.match(before)
+    if not match:
+        return before, period
+    normalized_month = _normalize_month_fragment(match.group("month"))
+    if normalized_month is None:
+        return before, period
+    if not re.match(r"^\d{4}\b", period):
+        return before, period
+    return _clean(match.group("rest")), f"{normalized_month} {period}"
+
+
+def _normalize_month_fragment(value: str) -> str | None:
+    normalized = _heading_key(value).replace(" ", "")
+    if not normalized:
+        return None
+    for month in _CANONICAL_MONTHS:
+        if normalized == month:
+            return month.capitalize()
+        if len(month) >= 4 and normalized == month[1:]:
+            return month.capitalize()
+    return None
 
 
 def _deduplicate(experiences: list[CVExperience]) -> list[CVExperience]:
