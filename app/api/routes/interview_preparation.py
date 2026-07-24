@@ -57,7 +57,12 @@ def analyze_interview_preparation(
         len(answers),
     )
     try:
-        response = generate_preparation(OpenAI(api_key=api_key), definition, answers)
+        response = generate_preparation(
+            OpenAI(api_key=api_key),
+            definition,
+            answers,
+            payload.context,
+        )
     except Exception as exc:
         logger.exception(
             "Interview preparation failed use_case_id=%s questionnaire_version=%s",

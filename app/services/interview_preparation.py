@@ -2,13 +2,14 @@ from __future__ import annotations
 
 import json
 from dataclasses import dataclass
+from typing import Optional
 
 from openai import OpenAI
 from pydantic import BaseModel, ConfigDict, Field
 
 
 INTERVIEW_PREPARATION_MODEL = "gpt-4o-mini"
-QUESTIONNAIRE_VERSION = "1.0"
+QUESTIONNAIRE_VERSION = "1.1"
 
 
 class InterviewQuestion(BaseModel):
@@ -19,6 +20,7 @@ class InterviewQuestion(BaseModel):
     helper: str
     required: bool = True
     input_type: str = "long_text"
+    options: list[str] = Field(default_factory=list)
 
 
 class InterviewUseCase(BaseModel):
@@ -39,12 +41,22 @@ class InterviewAnswer(BaseModel):
     answer: str = Field(min_length=1, max_length=5000)
 
 
+class InterviewPreparationContext(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+
+    target_role: str = Field(default="", max_length=5000)
+    career_experiences: str = Field(default="", max_length=10000)
+    sensitive_point: str = Field(default="", max_length=5000)
+    freemium_analysis: str = Field(default="", max_length=15000)
+
+
 class InterviewPreparationRequest(BaseModel):
     model_config = ConfigDict(extra="forbid")
 
     use_case_id: str
     questionnaire_version: str
     answers: list[InterviewAnswer] = Field(min_length=1)
+    context: Optional[InterviewPreparationContext] = None
 
 
 class PreparationSection(BaseModel):
@@ -77,12 +89,16 @@ def _question(
     helper: str,
     *,
     required: bool = True,
+    input_type: str = "long_text",
+    options: list[str] | None = None,
 ) -> InterviewQuestion:
     return InterviewQuestion(
         id=question_id,
         title=title,
         helper=helper,
         required=required,
+        input_type=input_type,
+        options=options or [],
     )
 
 
@@ -95,14 +111,53 @@ USE_CASES: dict[str, UseCaseDefinition] = {
             description="Préparer un récit clair, des preuves de légitimité et des réponses aux objections.",
             questionnaire_version=QUESTIONNAIRE_VERSION,
             questions=[
-                _question("target_role", "Quel poste visez-vous ?", "Précisez le rôle et, si utile, le secteur."),
-                _question("career_steps", "Quelles étapes de votre parcours sont les plus pertinentes ?", "Gardez les expériences qui soutiennent directement votre candidature."),
-                _question("strengths", "Quelles forces voulez-vous démontrer ?", "Appuyez-vous sur des faits, responsabilités ou résultats observables."),
-                _question("sensitive_point", "Quel point risque de susciter une question ?", "Transition, interruption, reconversion ou expérience courte.", required=False),
-                _question("concerns", "Quelles questions du recruteur vous préoccupent ?", "Indiquez les objections que vous souhaitez préparer.", required=False),
+                _question(
+                    "interview_stage",
+                    "Où en êtes-vous dans le processus ?",
+                    "Choisissez l’étape de votre prochain échange.",
+                    input_type="single_choice",
+                    options=["Premier échange", "Entretien RH", "Entretien manager", "Entretien technique", "Entretien final"],
+                ),
+                _question("company_context", "Que savez-vous du poste ou de l’entreprise ?", "Quelques éléments de l’annonce ou du contexte suffisent.", required=False),
+                _question(
+                    "interviewer",
+                    "Avec qui allez-vous échanger ?",
+                    "Sélectionnez l’interlocuteur principal si vous le connaissez.",
+                    required=False,
+                    input_type="single_choice",
+                    options=["Recruteur", "Manager", "Direction", "Équipe technique", "Inconnu"],
+                ),
+                _question("key_strengths", "Quelles sont les deux forces à faire retenir ?", "Choisissez les forces les plus utiles pour ce poste."),
+                _question("proof_example", "Quel exemple concret prouve le mieux l’une de ces forces ?", "Appuyez-vous sur une expérience déjà renseignée."),
+                _question("measurable_impact", "Quel résultat ou impact pouvez-vous mentionner ?", "Laissez vide si vous ne disposez pas d’un fait vérifiable.", required=False),
+                _question("feared_question", "Quelle question craignez-vous le plus ?", "Formulez la question telle qu’elle pourrait être posée."),
+                _question(
+                    "secondary_topic",
+                    "Y a-t-il un autre sujet à préparer ?",
+                    "Choisissez le sujet secondaire le plus utile.",
+                    required=False,
+                    input_type="single_choice",
+                    options=["Salaire", "Manque d’expérience", "Reconversion", "Interruption", "Départ d’un poste", "Mobilité"],
+                ),
+                _question(
+                    "answer_tone",
+                    "Quel ton voulez-vous adopter ?",
+                    "Ce choix guidera la formulation des réponses sensibles.",
+                    input_type="single_choice",
+                    options=["Direct et factuel", "Rassurant", "Diplomatique"],
+                ),
+                _question("desired_takeaway", "À la fin, que doit avoir compris votre interlocuteur ?", "Résumez en une phrase l’impression que vous voulez laisser."),
+                _question("questions_to_ask", "Qu’aimeriez-vous demander au recruteur ?", "Ajoutez une ou deux questions si vous en avez.", required=False),
+                _question(
+                    "preparation_depth",
+                    "Quel niveau de préparation souhaitez-vous ?",
+                    "Choisissez le niveau de détail du résultat final.",
+                    input_type="single_choice",
+                    options=["Fiche express", "Préparation complète"],
+                ),
             ],
         ),
-        analysis_focus="Construire un pitch crédible, relier les expériences au poste visé et préparer les objections sans inventer de faits.",
+        analysis_focus="Produire un kit d’entretien directement utilisable : pitch oral, réponse de présentation, preuves de légitimité, réponses difficiles, objections probables, questions à poser et checklist finale.",
     ),
     "internal_mobility": UseCaseDefinition(
         catalog=InterviewUseCase(
@@ -236,6 +291,7 @@ def generate_preparation(
     client: OpenAI,
     definition: UseCaseDefinition,
     answers: dict[str, str],
+    context: Optional[InterviewPreparationContext] = None,
 ) -> InterviewPreparationResponse:
     question_titles = {question.id: question.title for question in definition.catalog.questions}
     input_items = [
@@ -269,6 +325,9 @@ Retourne uniquement un objet JSON respectant exactement cette structure :
 
 Réponses de l’utilisateur :
 {json.dumps(input_items, ensure_ascii=False)}
+
+Contexte déjà collecté avant le premium, à réutiliser sans le redemander :
+{json.dumps(context.model_dump() if context else {}, ensure_ascii=False)}
 """
     completion = client.chat.completions.create(
         model=INTERVIEW_PREPARATION_MODEL,
