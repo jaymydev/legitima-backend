@@ -31,7 +31,7 @@ def test_catalog_exposes_six_distinct_versioned_use_cases() -> None:
         "annual_review",
         "performance_review",
     ]
-    assert all(item["questionnaire_version"] == "1.0" for item in use_cases)
+    assert all(item["questionnaire_version"] == "1.1" for item in use_cases)
     assert len({question["id"] for item in use_cases for question in item["questions"]}) > 30
 
 
@@ -50,7 +50,7 @@ def test_analyze_rejects_missing_required_answers() -> None:
         "/v2/interview-preparation/analyze",
         json={
             "use_case_id": "mid_year",
-            "questionnaire_version": "1.0",
+            "questionnaire_version": "1.1",
             "answers": [{"question_id": "role_context", "answer": "Responsable produit"}],
         },
     )
@@ -125,6 +125,74 @@ def test_analyze_returns_specialized_structured_preparation(monkeypatch) -> None
     assert response.json() == model_response
 
 
+def test_recruitment_uses_freemium_context_without_reasking_for_cv(monkeypatch) -> None:
+    use_case = next(
+        item
+        for item in client.get("/v2/interview-preparation/use-cases").json()["use_cases"]
+        if item["id"] == "recruitment"
+    )
+    question_ids = {question["id"] for question in use_case["questions"]}
+    assert "target_role" not in question_ids
+    assert "career_steps" not in question_ids
+    assert "interview_stage" in question_ids
+    assert "desired_takeaway" in question_ids
+
+    model_response = {
+        "use_case_id": "recruitment",
+        "title": "Préparation de l’entretien",
+        "summary": "Une candidature structurée et factuelle.",
+        "sections": [{"title": "Pitch", "content": "Présentation synthétique."}],
+        "talking_points": ["Relier les expériences au poste."],
+        "action_plan": ["Relire les preuves avant l’entretien."],
+    }
+
+    class FakeCompletions:
+        def create(self, **kwargs):
+            prompt = kwargs["messages"][0]["content"]
+            assert "Responsable produit" in prompt
+            assert "Coordination de projets" in prompt
+            assert "Fiche express" in prompt
+            return SimpleNamespace(
+                choices=[
+                    SimpleNamespace(
+                        message=SimpleNamespace(content=json.dumps(model_response, ensure_ascii=False))
+                    )
+                ]
+            )
+
+    monkeypatch.setenv("OPENAI_API_KEY", "test-key")
+    monkeypatch.setattr(
+        route,
+        "OpenAI",
+        lambda api_key: SimpleNamespace(
+            chat=SimpleNamespace(completions=FakeCompletions())
+        ),
+    )
+
+    answers = _required_answers(use_case)
+    next(
+        item for item in answers if item["question_id"] == "preparation_depth"
+    )["answer"] = "Fiche express"
+
+    response = client.post(
+        "/v2/interview-preparation/analyze",
+        json={
+            "use_case_id": "recruitment",
+            "questionnaire_version": use_case["questionnaire_version"],
+            "answers": answers,
+            "context": {
+                "target_role": "Responsable produit",
+                "career_experiences": "Coordination de projets",
+                "sensitive_point": "Transition",
+                "freemium_analysis": "Parcours cohérent",
+            },
+        },
+    )
+
+    assert response.status_code == 200
+    assert response.json() == model_response
+
+
 def test_analyze_does_not_log_answer_content(monkeypatch, caplog) -> None:
     use_case = next(
         item
@@ -151,6 +219,9 @@ def test_analyze_does_not_log_answer_content(monkeypatch, caplog) -> None:
             "use_case_id": use_case["id"],
             "questionnaire_version": use_case["questionnaire_version"],
             "answers": answers,
+            "context": {
+                "career_experiences": secret_marker,
+            },
         },
     )
 
