@@ -44,6 +44,59 @@ Response `200`
 }
 ```
 
+## Interview preparation V2
+
+### `GET /v2/interview-preparation/use-cases`
+
+Returns the versioned questionnaire catalog for recruitment, internal mobility, role
+evolution, mid-year, annual, and performance interviews. Each use case contains its
+own title, description, version, and ordered questions. The endpoint does not require
+authentication.
+
+### `POST /v2/interview-preparation/analyze`
+
+Generates a preparation adapted to one questionnaire without changing the transitional
+`POST /analyze` contract.
+
+Request:
+
+```json
+{
+  "use_case_id": "mid_year",
+  "questionnaire_version": "1.0",
+  "answers": [
+    {
+      "question_id": "role_context",
+      "answer": "Responsable produit"
+    }
+  ]
+}
+```
+
+All required questions from the selected catalog must be answered. Unknown questions,
+duplicates, and stale questionnaire versions return `422`.
+
+Response:
+
+```json
+{
+  "use_case_id": "mid_year",
+  "title": "string",
+  "summary": "string",
+  "sections": [
+    {
+      "title": "string",
+      "content": "string"
+    }
+  ],
+  "talking_points": ["string"],
+  "action_plan": ["string"]
+}
+```
+
+The endpoint requires `OPENAI_API_KEY`. User answers and generated content must not be
+written to application logs.
+
 ## Transitional AI endpoint
 
 ### `POST /analyze`
