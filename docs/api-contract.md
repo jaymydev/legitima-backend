@@ -69,12 +69,21 @@ Request:
       "question_id": "role_context",
       "answer": "Responsable produit"
     }
-  ]
+  ],
+  "context": {
+    "target_role": "string",
+    "career_experiences": "string",
+    "sensitive_point": "string",
+    "freemium_analysis": "string"
+  }
 }
 ```
 
 All required questions from the selected catalog must be answered. Unknown questions,
 duplicates, and stale questionnaire versions return `422`.
+
+`context` is optional and lets the premium recruitment flow reuse information already
+collected by the freemium analysis. It must not be used to request another CV upload.
 
 Response:
 
