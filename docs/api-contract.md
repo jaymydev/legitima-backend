@@ -82,6 +82,9 @@ Request:
 All required questions from the selected catalog must be answered. Unknown questions,
 duplicates, and stale questionnaire versions return `422`.
 
+Each catalog question provides either selectable `options` or non-binding
+`suggestions` to help the user formulate a more complete answer.
+
 `context` is optional and lets the premium recruitment flow reuse information already
 collected by the freemium analysis. It must not be used to request another CV upload.
 

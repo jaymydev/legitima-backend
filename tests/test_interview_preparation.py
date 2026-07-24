@@ -31,8 +31,13 @@ def test_catalog_exposes_six_distinct_versioned_use_cases() -> None:
         "annual_review",
         "performance_review",
     ]
-    assert all(item["questionnaire_version"] == "1.1" for item in use_cases)
+    assert all(item["questionnaire_version"] == "1.2" for item in use_cases)
     assert len({question["id"] for item in use_cases for question in item["questions"]}) > 30
+    assert all(
+        question["options"] or question["suggestions"]
+        for item in use_cases
+        for question in item["questions"]
+    )
 
 
 def test_each_use_case_has_its_own_required_questions() -> None:
@@ -50,7 +55,7 @@ def test_analyze_rejects_missing_required_answers() -> None:
         "/v2/interview-preparation/analyze",
         json={
             "use_case_id": "mid_year",
-            "questionnaire_version": "1.1",
+            "questionnaire_version": "1.2",
             "answers": [{"question_id": "role_context", "answer": "Responsable produit"}],
         },
     )
