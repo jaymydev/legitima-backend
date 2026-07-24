@@ -431,3 +431,86 @@ def test_analyze_retries_when_response_duplicates_content(monkeypatch) -> None:
     assert response.status_code == 200
     assert response.json()["narrative"]["positioning_statement"] == corrected_response["narrative"]["positioning_statement"]
     assert fake_client.calls == 2
+
+
+def test_analyze_retries_when_last_paragraph_is_repeated_in_final_bullets(monkeypatch) -> None:
+    client = TestClient(app)
+    payload = {
+        "input": {
+            "meta": {
+                "version": "1.0",
+                "language": "fr",
+                "target_market": "US",
+                "interview_type": "recruitment",
+            },
+            "narrative_positioning": {
+                "short_summary": "Resume",
+                "current_positioning": "Developpeur backend",
+                "evolution_logic": "Progression vers plus de leadership",
+            },
+        }
+    }
+
+    repeated_paragraph = (
+        "Mon parcours est aligné avec les exigences des rôles techniques, et je suis déterminé "
+        "à mettre mes compétences au service d'équipes et de projets innovants."
+    )
+    duplicated_response = {
+        "analysis": {
+            "strategic_reading": "Trajectoire cohérente dans des environnements techniques exigeants.",
+            "dominant_competencies": "Développement, coordination et montée en responsabilité.",
+            "career_logic": "Progression structurée vers davantage d'impact technique.",
+        },
+        "sensitive_reframing": {
+            "identified_fragilities": "Quelques transitions peuvent susciter des questions.",
+            "strategic_reinterpretation": "Ces passages montrent une capacité d'adaptation réelle.",
+            "rational_reframing": "Le parcours reste cohérent et défendable de façon factuelle.",
+        },
+        "narrative": {
+            "core_thread": "Le fil conducteur est celui d'une expertise technique qui se consolide.",
+            "positioning_statement": "Le positionnement cible est celui d'un profil technique senior fiable.",
+        },
+        "interview_preparation": {
+            "probable_objections": "La cohérence globale peut être interrogée sur certains changements.",
+            "structured_answers": "Il faut recentrer la réponse sur la continuité des compétences acquises.",
+        },
+        "legitimacy_anchor": {
+            "objective_strength": (
+                "Une expérience diversifiée dans des entreprises reconnues apporte une crédibilité concrète.\n\n"
+                + repeated_paragraph
+            ),
+            "final_alignment_statement": repeated_paragraph,
+        },
+    }
+    corrected_response = {
+        "analysis": duplicated_response["analysis"],
+        "sensitive_reframing": duplicated_response["sensitive_reframing"],
+        "narrative": duplicated_response["narrative"],
+        "interview_preparation": duplicated_response["interview_preparation"],
+        "legitimacy_anchor": {
+            "objective_strength": "Une expérience diversifiée dans des entreprises reconnues apporte une crédibilité concrète.",
+            "final_alignment_statement": repeated_paragraph,
+        },
+    }
+
+    class FakeOpenAI:
+        def __init__(self, api_key: str):
+            self.chat = SimpleNamespace(completions=SimpleNamespace(create=self.create))
+            self.calls = 0
+
+        def create(self, **kwargs):
+            self.calls += 1
+            content = duplicated_response if self.calls == 1 else corrected_response
+            return SimpleNamespace(
+                choices=[SimpleNamespace(message=SimpleNamespace(content=json.dumps(content)))]
+            )
+
+    fake_client = FakeOpenAI(api_key="test-key")
+    monkeypatch.setenv("OPENAI_API_KEY", "test-key")
+    monkeypatch.setattr(analyze_route, "OpenAI", lambda api_key: fake_client)
+
+    response = client.post("/analyze", json=payload)
+
+    assert response.status_code == 200
+    assert response.json()["legitimacy_anchor"]["objective_strength"] == corrected_response["legitimacy_anchor"]["objective_strength"]
+    assert fake_client.calls == 2

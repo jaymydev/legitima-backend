@@ -316,8 +316,20 @@ def _normalize_for_duplicate_check(text: str) -> str:
     return re.sub(r"\s+", " ", lowered).strip()
 
 
+def _iter_distinctness_chunks(text: str) -> Iterable[str]:
+    paragraphs = [chunk.strip() for chunk in re.split(r"\n\s*\n", text) if chunk.strip()]
+    if len(paragraphs) > 1:
+        yield from paragraphs
+        return
+    yield text
+
+
 def _contains_duplicate_content(response: AnalyzeResponseV1) -> bool:
-    normalized_values = [_normalize_for_duplicate_check(value) for value in _iter_response_strings(response)]
+    normalized_values = [
+        _normalize_for_duplicate_check(chunk)
+        for value in _iter_response_strings(response)
+        for chunk in _iter_distinctness_chunks(value)
+    ]
     seen: set[str] = set()
     for value in normalized_values:
         if len(value) < 20:
