@@ -9,7 +9,7 @@ from pydantic import BaseModel, ConfigDict, Field
 
 
 INTERVIEW_PREPARATION_MODEL = "gpt-4o-mini"
-QUESTIONNAIRE_VERSION = "1.1"
+QUESTIONNAIRE_VERSION = "1.2"
 
 
 class InterviewQuestion(BaseModel):
@@ -21,6 +21,7 @@ class InterviewQuestion(BaseModel):
     required: bool = True
     input_type: str = "long_text"
     options: list[str] = Field(default_factory=list)
+    suggestions: list[str] = Field(default_factory=list)
 
 
 class InterviewUseCase(BaseModel):
@@ -91,6 +92,7 @@ def _question(
     required: bool = True,
     input_type: str = "long_text",
     options: list[str] | None = None,
+    suggestions: list[str] | None = None,
 ) -> InterviewQuestion:
     return InterviewQuestion(
         id=question_id,
@@ -99,7 +101,50 @@ def _question(
         required=required,
         input_type=input_type,
         options=options or [],
+        suggestions=suggestions or _ANSWER_SUGGESTIONS.get(question_id, []),
     )
+
+
+_ANSWER_SUGGESTIONS = {
+    "company_context": ["Reprenez une mission clé de l’annonce.", "Citez un enjeu récent de l’entreprise qui vous intéresse."],
+    "key_strengths": ["Associez chaque force à une exigence du poste.", "Choisissez deux qualités illustrées par votre parcours."],
+    "proof_example": ["Décrivez la situation, votre action, puis le résultat.", "Choisissez un exemple où votre rôle personnel est clair."],
+    "measurable_impact": ["Indiquez un délai, un volume ou une amélioration vérifiable.", "À défaut de chiffre, décrivez un effet concret observé."],
+    "feared_question": ["Écrivez la question exactement comme le recruteur pourrait la poser.", "Pensez au point de votre parcours qui nécessite le plus d’explication."],
+    "desired_takeaway": ["Formulez une seule idée forte liée au poste.", "Commencez par : « Je veux qu’il retienne que… »"],
+    "questions_to_ask": ["Interrogez les priorités des premiers mois.", "Demandez comment la réussite sera évaluée sur ce poste."],
+    "current_internal_role": ["Précisez votre mission, votre ancienneté et vos interlocuteurs.", "Résumez votre responsabilité principale en une phrase."],
+    "target_internal_role": ["Nommez le poste ou l’équipe visée.", "Précisez le nouveau périmètre souhaité."],
+    "mobility_motivation": ["Reliez votre motivation à une progression professionnelle.", "Expliquez pourquoi cette mobilité est cohérente maintenant."],
+    "transferable_contributions": ["Citez une réalisation connue dans l’entreprise.", "Mentionnez une collaboration utile pour la future équipe."],
+    "readiness_gaps": ["Identifiez une compétence à développer sans vous dévaloriser.", "Associez chaque écart à une action d’apprentissage."],
+    "internal_transition_plan": ["Proposez une passation et un calendrier réalistes.", "Précisez comment préserver la continuité de l’activité."],
+    "current_scope": ["Distinguez responsabilités officielles et responsabilités déjà prises.", "Citez le périmètre, l’autonomie et les décisions assumées."],
+    "desired_evolution": ["Nommez précisément le niveau ou les responsabilités souhaités.", "Expliquez ce qui changerait concrètement dans votre rôle."],
+    "readiness_evidence": ["Citez une responsabilité déjà exercée au niveau supérieur.", "Appuyez-vous sur un résultat ou une reconnaissance vérifiable."],
+    "business_impact": ["Reliez l’évolution à un besoin de l’équipe.", "Décrivez le bénéfice attendu pour l’organisation."],
+    "development_areas": ["Présentez un axe de progrès et votre plan pour le travailler.", "Choisissez un point réel mais compatible avec l’évolution visée."],
+    "evolution_conditions": ["Proposez des critères observables et une échéance.", "Demandez un point de suivi et les moyens nécessaires."],
+    "role_context": ["Résumez votre mission et vos responsabilités principales.", "Précisez le périmètre dont vous êtes directement responsable."],
+    "objectives_progress": ["Classez les objectifs : atteint, en cours ou retardé.", "Ajoutez un résultat ou une prochaine étape pour chacun."],
+    "achievements": ["Choisissez deux contributions à impact concret.", "Décrivez votre action personnelle et l’effet obtenu."],
+    "obstacles": ["Exposez le fait, son impact et la réponse apportée.", "Distinguez ce qui dépendait de vous du contexte externe."],
+    "next_priorities": ["Citez trois priorités maximum pour le prochain semestre.", "Associez chaque priorité à un résultat attendu."],
+    "support_needed": ["Demandez un arbitrage, une ressource ou une clarification précise.", "Expliquez ce que ce soutien permettra de sécuriser."],
+    "role_scope": ["Décrivez les missions exercées et leur évolution dans l’année.", "Mentionnez les responsabilités nouvelles ou élargies."],
+    "year_highlights": ["Sélectionnez les deux ou trois faits les plus significatifs.", "Privilégiez les contributions avec un effet observable."],
+    "objectives_results": ["Pour chaque objectif, donnez le résultat et le contexte.", "Expliquez factuellement les écarts éventuels."],
+    "skills_growth": ["Nommez la compétence puis son usage concret.", "Citez une situation où cette compétence a changé votre façon d’agir."],
+    "difficulties": ["Présentez les causes, les conséquences et ce que vous avez appris.", "Restez factuel et proposez une piste d’amélioration."],
+    "career_direction": ["Précisez l’expertise ou la responsabilité que vous souhaitez développer.", "Reliez votre souhait à un besoin de l’organisation."],
+    "next_year_goals": ["Formulez des objectifs observables et réalistes.", "Ajoutez une échéance ou un indicateur quand c’est possible."],
+    "expectations": ["Reprenez les objectifs et critères qui avaient été annoncés.", "Précisez les échéances ou niveaux attendus."],
+    "measurable_results": ["Citez des chiffres, délais ou livrables vérifiables.", "Expliquez votre contribution personnelle au résultat."],
+    "performance_gaps": ["Reformulez la critique précisément, sans la minimiser.", "Distinguez le fait observé de votre interprétation."],
+    "context_factors": ["Séparez contraintes externes et décisions personnelles.", "Expliquez l’impact du contexte sans vous déresponsabiliser."],
+    "improvement_actions": ["Décrivez une action déjà engagée et son premier effet.", "Précisez la méthode ou le suivi mis en place."],
+    "support_and_commitments": ["Formulez ce que vous demandez et ce que vous vous engagez à faire.", "Ajoutez une échéance de suivi mesurable."],
+}
 
 
 USE_CASES: dict[str, UseCaseDefinition] = {
