@@ -4,10 +4,14 @@ import os
 import re
 import unicodedata
 from io import BytesIO
+from time import perf_counter
+from typing import Any
 
 from fastapi import HTTPException
 from pydantic import BaseModel, ConfigDict
 from pypdf import PdfReader
+
+from app.observability.logging import logger
 
 SUPPORTED_IMAGE_TYPES = {
     "image/jpeg",
@@ -19,6 +23,10 @@ SUPPORTED_CONTENT_TYPES = {
     *SUPPORTED_IMAGE_TYPES,
 }
 MAX_CV_FILE_SIZE_BYTES = 10 * 1024 * 1024
+CV_PARSE_OCR_TIMEOUT_SECONDS = 20
+CV_PARSE_OCR_MAX_IMAGE_DIMENSION = 2400
+CV_PARSE_OCR_SIDEBAR_RATIO = 0.34
+CV_PARSE_MAX_RETURNED_EXPERIENCES = 5
 ENABLE_CV_PARSE_TEST_ERRORS_ENV = "ENABLE_CV_PARSE_TEST_ERRORS"
 CV_PARSE_TEST_ERROR_500 = "500"
 
@@ -41,6 +49,44 @@ _KNOWN_COMPANY_CONTEXT_RE = re.compile(
     r"(?P<company>\baccenture\b(?:\s*\([^)]*\))?)",
     flags=re.IGNORECASE,
 )
+_LEADING_MONTH_FRAGMENT_RE = re.compile(r"^(?P<month>[A-Za-zÀ-ÿ.]+)\s+(?:-|–|—|\|)\s+(?P<rest>.+)$")
+_LEADING_OCR_NOISE_RE = re.compile(r"^[\s+©®*#•●·]+")
+_CANONICAL_MONTHS = (
+    "janvier",
+    "fevrier",
+    "mars",
+    "avril",
+    "mai",
+    "juin",
+    "juillet",
+    "aout",
+    "septembre",
+    "octobre",
+    "novembre",
+    "decembre",
+)
+_MONTH_VALUES = {
+    "janvier": 1,
+    "janv": 1,
+    "fevrier": 2,
+    "fevr": 2,
+    "mars": 3,
+    "avril": 4,
+    "avr": 4,
+    "mai": 5,
+    "juin": 6,
+    "juillet": 7,
+    "juil": 7,
+    "aout": 8,
+    "septembre": 9,
+    "sept": 9,
+    "octobre": 10,
+    "oct": 10,
+    "novembre": 11,
+    "nov": 11,
+    "decembre": 12,
+    "dec": 12,
+}
 
 
 class CVExperience(BaseModel):
@@ -83,10 +129,18 @@ def maybe_raise_cv_parse_test_error(test_error: str | None) -> None:
     raise HTTPException(status_code=500, detail="Forced /cv/parse test error")
 
 
-def parse_cv_file(*, filename: str, content_type: str, file_bytes: bytes) -> CVParseResponse:
+def parse_cv_file(
+    *,
+    filename: str,
+    content_type: str,
+    file_bytes: bytes,
+    started_at: float | None = None,
+) -> CVParseResponse:
     """Extract work experience without sending the uploaded CV to an LLM."""
     del filename
+    started_at = started_at or perf_counter()
     ensure_cv_file_size(file_bytes)
+    extraction_started_at = perf_counter()
 
     if content_type in SUPPORTED_IMAGE_TYPES:
         try:
@@ -101,7 +155,15 @@ def parse_cv_file(*, filename: str, content_type: str, file_bytes: bytes) -> CVP
                 status_code=422,
                 detail="No extractable text was found in the image. Upload a readable CV image.",
             )
-        return _response_from_extracted_text(extracted_text)
+        response = _response_from_extracted_text(extracted_text)
+        _log_parse_timing(
+            content_type=content_type,
+            file_size_bytes=len(file_bytes),
+            extraction_duration_ms=_elapsed_ms(extraction_started_at),
+            total_duration_ms=_elapsed_ms(started_at),
+            experience_count=len(response.experiences),
+        )
+        return response
 
     if content_type != "application/pdf":
         raise HTTPException(
@@ -119,7 +181,37 @@ def parse_cv_file(*, filename: str, content_type: str, file_bytes: bytes) -> CVP
             status_code=422,
             detail="No extractable text was found in the PDF. Upload a text-based PDF.",
         )
-    return _response_from_extracted_text(extracted_text)
+    response = _response_from_extracted_text(extracted_text)
+    _log_parse_timing(
+        content_type=content_type,
+        file_size_bytes=len(file_bytes),
+        extraction_duration_ms=_elapsed_ms(extraction_started_at),
+        total_duration_ms=_elapsed_ms(started_at),
+        experience_count=len(response.experiences),
+    )
+    return response
+
+
+def _elapsed_ms(started_at: float) -> int:
+    return round((perf_counter() - started_at) * 1000)
+
+
+def _log_parse_timing(
+    *,
+    content_type: str,
+    file_size_bytes: int,
+    extraction_duration_ms: int,
+    total_duration_ms: int,
+    experience_count: int,
+) -> None:
+    logger.info(
+        "CV parse completed content_type=%s file_size_bytes=%d extraction_duration_ms=%d total_duration_ms=%d experience_count=%d",
+        content_type,
+        file_size_bytes,
+        extraction_duration_ms,
+        total_duration_ms,
+        experience_count,
+    )
 
 
 def _extract_text_from_pdf(file_bytes: bytes) -> str:
@@ -129,20 +221,122 @@ def _extract_text_from_pdf(file_bytes: bytes) -> str:
 
 def _extract_text_from_image(file_bytes: bytes) -> str:
     try:
-        from PIL import Image, ImageOps
+        from PIL import Image, ImageOps, ImageStat
         import pytesseract
     except ImportError as exc:
         raise RuntimeError("OCR dependencies are not installed") from exc
 
     ocr_language = os.getenv("CV_PARSE_OCR_LANG", "fra+eng")
     try:
-        image = Image.open(BytesIO(file_bytes))
+        image = ImageOps.exif_transpose(Image.open(BytesIO(file_bytes)))
+        original_width, original_height = image.size
+        image.thumbnail(
+            (CV_PARSE_OCR_MAX_IMAGE_DIMENSION, CV_PARSE_OCR_MAX_IMAGE_DIMENSION),
+            Image.Resampling.LANCZOS,
+        )
+        logger.info(
+            "CV OCR image prepared original_width=%d original_height=%d processed_width=%d processed_height=%d resized=%s",
+            original_width,
+            original_height,
+            image.width,
+            image.height,
+            image.size != (original_width, original_height),
+        )
         image = ImageOps.autocontrast(image.convert("L"))
-        return pytesseract.image_to_string(image, lang=ocr_language, config="--psm 6").strip()
+        attempts = _build_ocr_attempts(image, image_stat_module=ImageStat)
+        return _run_ocr_attempts(
+            pytesseract_module=pytesseract,
+            attempts=attempts,
+            language=ocr_language,
+            timeout_seconds=CV_PARSE_OCR_TIMEOUT_SECONDS,
+        )
     except RuntimeError:
         raise
     except Exception as exc:
         raise RuntimeError("OCR engine is not available or failed to process the image") from exc
+
+
+def _build_ocr_attempts(image: Any, *, image_stat_module: Any) -> list[dict[str, Any]]:
+    attempts: list[dict[str, Any]] = []
+    if _has_dark_left_sidebar(image, image_stat_module=image_stat_module):
+        split_x = max(1, int(image.width * CV_PARSE_OCR_SIDEBAR_RATIO))
+        attempts.append(
+            {
+                "label": "main_column",
+                "image": image.crop((split_x, 0, image.width, image.height)),
+                "config": "--psm 4",
+            }
+        )
+    attempts.append(
+        {
+            "label": "full_page",
+            "image": image,
+            "config": "--psm 3",
+        }
+    )
+    return attempts
+
+
+def _has_dark_left_sidebar(image: Any, *, image_stat_module: Any) -> bool:
+    if image.width < 800 or image.height < 1000:
+        return False
+    split_x = max(1, int(image.width * CV_PARSE_OCR_SIDEBAR_RATIO))
+    left = image.crop((0, 0, split_x, image.height))
+    right = image.crop((split_x, 0, image.width, image.height))
+    left_mean = image_stat_module.Stat(left).mean[0]
+    right_mean = image_stat_module.Stat(right).mean[0]
+    return (right_mean - left_mean) >= 45
+
+
+def _run_ocr_attempts(
+    *,
+    pytesseract_module: Any,
+    attempts: list[dict[str, Any]],
+    language: str,
+    timeout_seconds: int,
+) -> str:
+    started_at = perf_counter()
+    last_error: RuntimeError | None = None
+
+    for attempt in attempts:
+        remaining_seconds = max(1, timeout_seconds - int(perf_counter() - started_at))
+        attempt_started_at = perf_counter()
+        try:
+            text = pytesseract_module.image_to_string(
+                attempt["image"],
+                lang=language,
+                config=attempt["config"],
+                timeout=remaining_seconds,
+            ).strip()
+            logger.info(
+                "CV OCR attempt completed label=%s width=%d height=%d config=%s duration_ms=%d remaining_budget_s=%d has_text=%s",
+                attempt["label"],
+                attempt["image"].width,
+                attempt["image"].height,
+                attempt["config"],
+                _elapsed_ms(attempt_started_at),
+                remaining_seconds,
+                bool(text),
+            )
+            if text:
+                return text
+        except RuntimeError as exc:
+            last_error = exc
+            logger.warning(
+                "CV OCR attempt failed label=%s width=%d height=%d config=%s duration_ms=%d error=%s",
+                attempt["label"],
+                attempt["image"].width,
+                attempt["image"].height,
+                attempt["config"],
+                _elapsed_ms(attempt_started_at),
+                str(exc),
+            )
+            if "timeout" not in str(exc).lower():
+                raise
+
+    if last_error is not None:
+        raise last_error
+    return ""
 
 
 def _response_from_extracted_text(extracted_text: str) -> CVParseResponse:
@@ -186,7 +380,7 @@ def parse_cv_text(extracted_text: str) -> CVParseResponse:
         if candidate is not None:
             experiences.append(candidate)
 
-    return CVParseResponse(experiences=_deduplicate(experiences))
+    return CVParseResponse(experiences=_sort_and_limit_experiences(_deduplicate(experiences)))
 
 
 def _normalise_lines(text: str) -> list[str]:
@@ -251,6 +445,9 @@ def _experience_from_line(line: str) -> CVExperience | None:
     before = _clean(line[: match.start()])
     if not before:
         return None
+    before, period = _reattach_leading_month_fragment(before, period)
+    if not before:
+        return None
 
     known_company = _experience_with_known_company_context(before, period)
     if known_company is not None:
@@ -313,10 +510,14 @@ def _experience_from_adjacent_lines(previous: str, current: str) -> CVExperience
         return None
     current_without_period = _clean(current[: match.start()])
     period = _period_from_match(current, match)
+    current_without_period, period = _reattach_leading_month_fragment(current_without_period, period)
+    standalone_month = _normalize_month_fragment(current_without_period)
     parts = _SEPARATOR_RE.split(current_without_period, maxsplit=1)
     if len(parts) == 2:
         title, company = map(_clean, parts)
-    elif not current_without_period:
+    elif not current_without_period or standalone_month is not None:
+        if standalone_month is not None and re.match(r"^\d{4}\b", period):
+            period = f"{standalone_month} {period}"
         if "(" in previous:
             combined = _experience_from_line(f"{previous} - {period}")
             if combined is not None and combined.company:
@@ -386,7 +587,32 @@ def _looks_like_role_title(value: str) -> bool:
 
 
 def _clean(value: str) -> str:
-    return re.sub(r"\s+", " ", value).strip(" -|,;:")
+    compact = re.sub(r"\s+", " ", value).strip(" -|,;:")
+    return _LEADING_OCR_NOISE_RE.sub("", compact)
+
+
+def _reattach_leading_month_fragment(before: str, period: str) -> tuple[str, str]:
+    match = _LEADING_MONTH_FRAGMENT_RE.match(before)
+    if not match:
+        return before, period
+    normalized_month = _normalize_month_fragment(match.group("month"))
+    if normalized_month is None:
+        return before, period
+    if not re.match(r"^\d{4}\b", period):
+        return before, period
+    return _clean(match.group("rest")), f"{normalized_month} {period}"
+
+
+def _normalize_month_fragment(value: str) -> str | None:
+    normalized = _heading_key(value).replace(" ", "")
+    if not normalized:
+        return None
+    for month in _CANONICAL_MONTHS:
+        if normalized == month:
+            return month.capitalize()
+        if len(month) >= 4 and normalized == month[1:]:
+            return month.capitalize()
+    return None
 
 
 def _deduplicate(experiences: list[CVExperience]) -> list[CVExperience]:
@@ -398,3 +624,69 @@ def _deduplicate(experiences: list[CVExperience]) -> list[CVExperience]:
             seen.add(key)
             result.append(experience)
     return result
+
+
+def _sort_and_limit_experiences(experiences: list[CVExperience]) -> list[CVExperience]:
+    ranked = sorted(
+        experiences,
+        key=lambda experience: _experience_sort_key(experience.period),
+        reverse=True,
+    )
+    return ranked[:CV_PARSE_MAX_RETURNED_EXPERIENCES]
+
+
+def _experience_sort_key(period: str) -> tuple[int, int, int, int]:
+    normalized = _heading_key(period).replace(" ", "")
+    if normalized.startswith("depuis"):
+        start = _first_month_year(period)
+        if start is None:
+            return (9999, 12, 9999, 12)
+        return (9999, 12, start[0], start[1])
+
+    span = _month_year_span(period)
+    if span is not None:
+        start, end = span
+        return (end[0], end[1], start[0], start[1])
+
+    years = [int(year) for year in re.findall(r"\b\d{4}\b", period)]
+    if years:
+        end_year = max(years)
+        start_year = min(years)
+        return (end_year, 12, start_year, 1)
+
+    return (0, 0, 0, 0)
+
+
+def _month_year_span(period: str) -> tuple[tuple[int, int], tuple[int, int]] | None:
+    month_years = _extract_month_years(period)
+    if not month_years:
+        return None
+    if len(month_years) == 1:
+        return month_years[0], month_years[0]
+    return month_years[0], month_years[-1]
+
+
+def _first_month_year(period: str) -> tuple[int, int] | None:
+    month_years = _extract_month_years(period)
+    if month_years:
+        return month_years[0]
+    years = [int(year) for year in re.findall(r"\b\d{4}\b", period)]
+    if years:
+        return (years[0], 1)
+    return None
+
+
+def _extract_month_years(period: str) -> list[tuple[int, int]]:
+    matches = re.findall(rf"(?i)\b({_MONTH_RE})\s+(\d{{4}})\b", period)
+    result: list[tuple[int, int]] = []
+    for month_name, year in matches:
+        month_value = _month_value(month_name)
+        if month_value is None:
+            continue
+        result.append((int(year), month_value))
+    return result
+
+
+def _month_value(value: str) -> int | None:
+    normalized = _heading_key(value).replace(" ", "")
+    return _MONTH_VALUES.get(normalized)
