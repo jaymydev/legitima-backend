@@ -109,6 +109,53 @@ Response:
 The endpoint requires `OPENAI_API_KEY`. User answers and generated content must not be
 written to application logs.
 
+### `POST /v2/interview-preparation/kickoff`
+
+First premium deliverable, generated at purchase time. It runs from the lean context
+alone — before any guided question is asked — so the user receives one usable answer
+immediately after paying, instead of being sent straight back into a questionnaire.
+
+Deliberately narrow: one probable objection, one defensible answer. The client blocks
+on this call behind a progress screen, so the response must stay small and fast.
+
+Request:
+
+```json
+{
+  "context": {
+    "target_role": "string",
+    "career_experiences": "string",
+    "sensitive_point": "string",
+    "freemium_analysis": "string"
+  }
+}
+```
+
+`context` is required and uses the same shape as the `analyze` endpoint. Unknown keys
+return `422`. All four fields default to an empty string, but a context carrying only a
+`sensitive_point` returns `422`: without a role or career path there is no thread to
+answer from, and the only way to produce an answer would be to invent one.
+
+When `freemium_analysis` already names a probable objection, the generation reuses that
+one rather than raising a different one — it is the objection the free teaser quoted
+without resolving.
+
+Response:
+
+```json
+{
+  "objection": "string",
+  "defensible_answer": "string"
+}
+```
+
+`objection` is a short question phrased as an interviewer would ask it.
+`defensible_answer` is 3 to 5 sentences in the first person, grounded in the career
+thread, that the candidate can say out loud as-is.
+
+The endpoint requires `OPENAI_API_KEY`. Context and generated content must not be
+written to application logs.
+
 ## Transitional AI endpoint
 
 ### `POST /analyze`

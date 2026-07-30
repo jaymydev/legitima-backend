@@ -60,6 +60,25 @@ class InterviewPreparationRequest(BaseModel):
     context: Optional[InterviewPreparationContext] = None
 
 
+class PremiumKickoffRequest(BaseModel):
+    """First premium computation, run right after the purchase.
+
+    It works from the lean context alone — no guided question has been asked
+    yet — so the user gets one usable answer before any further effort.
+    """
+
+    model_config = ConfigDict(extra="forbid")
+
+    context: InterviewPreparationContext
+
+
+class PremiumKickoffResponse(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+
+    objection: str = Field(min_length=1)
+    defensible_answer: str = Field(min_length=1)
+
+
 class PreparationSection(BaseModel):
     model_config = ConfigDict(extra="forbid")
 
@@ -387,3 +406,67 @@ Contexte déjà collecté avant le premium, à réutiliser sans le redemander :
     if response.use_case_id != definition.catalog.id:
         raise ValueError("OpenAI response use_case_id does not match request")
     return response
+
+
+def has_usable_context(context: InterviewPreparationContext) -> bool:
+    """Whether there is enough material to build an answer from.
+
+    Without a role or a career path there is nothing to reason from, and the
+    only way to produce an answer would be to invent one.
+    """
+    return bool(
+        context.target_role.strip()
+        or context.career_experiences.strip()
+        or context.freemium_analysis.strip()
+    )
+
+
+def generate_kickoff(
+    client: OpenAI,
+    context: InterviewPreparationContext,
+) -> PremiumKickoffResponse:
+    """Name the objection this profile will actually meet, and answer it.
+
+    Deliberately narrow: one objection, one answer. This runs while the user
+    waits on a blocking screen just after paying, so it must be fast and must
+    land on the single thing the free teaser raised without resolving.
+    """
+    prompt = f"""
+Tu prépares un candidat à un entretien à partir de son analyse gratuite, juste
+après son achat. Il n'a encore répondu à aucune question guidée.
+
+Objectif : nommer l'objection la plus probable que son interlocuteur soulèvera,
+puis lui donner une réponse défendable qu'il peut prononcer telle quelle.
+
+Règles impératives :
+- réponds uniquement en français ;
+- utilise exclusivement les informations fournies ;
+- n'invente aucune expérience, entreprise, date, compétence, diplôme ou résultat ;
+- ne minimise pas et ne masque pas la zone sensible : assume-la et requalifie-la ;
+- reste professionnel, factuel et non-jugeant ;
+- ne promets aucun succès à l'embauche ;
+- si l'analyse gratuite cite déjà une objection probable, reprends celle-là ;
+- l'objection est une question courte, telle qu'un recruteur la poserait ;
+- la réponse fait 3 à 5 phrases, à la première personne, appuyée sur le fil
+  conducteur du parcours, et se termine sur ce que le candidat apporte au poste
+  visé.
+
+Retourne uniquement un objet JSON respectant exactement cette structure :
+{{
+  "objection": "",
+  "defensible_answer": ""
+}}
+
+Contexte disponible :
+{json.dumps(context.model_dump(), ensure_ascii=False)}
+"""
+    completion = client.chat.completions.create(
+        model=INTERVIEW_PREPARATION_MODEL,
+        messages=[{"role": "system", "content": prompt}],
+        response_format={"type": "json_object"},
+    )
+    content = completion.choices[0].message.content if completion.choices else None
+    if not content:
+        raise ValueError("OpenAI response did not contain content")
+
+    return PremiumKickoffResponse.model_validate_json(content)
