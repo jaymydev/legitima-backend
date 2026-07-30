@@ -4,6 +4,7 @@ from types import SimpleNamespace
 from fastapi.testclient import TestClient
 
 from app.api.routes import interview_preparation as route
+from app.services.interview_preparation import QUESTIONNAIRE_VERSION
 from app.main import app
 
 
@@ -31,7 +32,9 @@ def test_catalog_exposes_six_distinct_versioned_use_cases() -> None:
         "annual_review",
         "performance_review",
     ]
-    assert all(item["questionnaire_version"] == "1.2" for item in use_cases)
+    assert all(
+        item["questionnaire_version"] == QUESTIONNAIRE_VERSION for item in use_cases
+    )
     assert len({question["id"] for item in use_cases for question in item["questions"]}) > 30
     assert all(
         question["options"] or question["suggestions"]
@@ -55,7 +58,7 @@ def test_analyze_rejects_missing_required_answers() -> None:
         "/v2/interview-preparation/analyze",
         json={
             "use_case_id": "mid_year",
-            "questionnaire_version": "1.2",
+            "questionnaire_version": QUESTIONNAIRE_VERSION,
             "answers": [{"question_id": "role_context", "answer": "Responsable produit"}],
         },
     )
@@ -334,3 +337,40 @@ def test_kickoff_does_not_log_context_content(monkeypatch, caplog) -> None:
 
     assert response.status_code == 500
     assert secret_marker not in caplog.text
+
+
+def test_every_use_case_asks_what_the_person_fears() -> None:
+    """The mechanism the product exists for must be solicited everywhere.
+
+    Only recruitment used to ask it. The other five collected the meeting's
+    agenda and returned it reformatted, never touching the sensitive point —
+    measured at 92% of the user's own words coming straight back.
+    """
+    catalog = client.get("/v2/interview-preparation/use-cases").json()["use_cases"]
+    assert len(catalog) == 6
+
+    for use_case in catalog:
+        required = [q for q in use_case["questions"] if q["required"]]
+        feared = [
+            q for q in required
+            if any(word in q["title"].lower() for word in ("craignez", "redoutez", "réserve"))
+        ]
+        assert feared, f"{use_case['id']} ne demande pas ce que la personne redoute"
+        # Free text: an objection cannot be picked from a list.
+        assert not feared[0]["options"], f"{use_case['id']}: la question redoutée doit rester ouverte"
+        assert feared[0]["suggestions"], f"{use_case['id']}: la question redoutée doit guider la réponse"
+
+
+def test_every_use_case_asks_for_a_defensible_answer() -> None:
+    """Each generation prompt must carry the « récit → réponses » mechanism.
+
+    The old focuses described the meeting ("créer un bilan annuel équilibré")
+    rather than the work, which is why five of six produced a paraphrase.
+    """
+    from app.services.interview_preparation import USE_CASES
+
+    for use_case_id, definition in USE_CASES.items():
+        focus = definition.analysis_focus.lower()
+        assert "défendable" in focus or "objections probables" in focus, (
+            f"{use_case_id}: la consigne ne demande pas de réponse défendable"
+        )

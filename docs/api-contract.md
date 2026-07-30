@@ -80,7 +80,15 @@ Request:
 ```
 
 All required questions from the selected catalog must be answered. Unknown questions,
-duplicates, and stale questionnaire versions return `422`.
+duplicates, and stale questionnaire versions return `422`. Always send the
+`questionnaire_version` returned by `use-cases` rather than a pinned value: the catalog
+is versioned as a whole, and clients holding a saved draft from an earlier version must
+restart it rather than submit stale answers.
+
+Every use case asks, as a **required** question, what the person fears being asked —
+the objection, the reservation, or the critique they expect. This is the material the
+preparation is built to answer; without it the generation has nothing to defend and
+returns the user's own words reformatted.
 
 Each catalog question provides either selectable `options` or non-binding
 `suggestions` to help the user formulate a more complete answer.
