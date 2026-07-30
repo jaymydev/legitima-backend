@@ -361,6 +361,24 @@ def test_every_use_case_asks_what_the_person_fears() -> None:
         assert feared[0]["suggestions"], f"{use_case['id']}: la question redoutée doit guider la réponse"
 
 
+def test_both_generation_prompts_forbid_inventing_the_gap() -> None:
+    """The prohibition must cover the paid flow, not only the kickoff.
+
+    It was first added to `generate_kickoff` alone, and the guided preparation
+    kept producing « cette phase de transition est une opportunité d'acquérir
+    de nouvelles compétences » from a context that said no such thing.
+    """
+    import inspect
+
+    from app.services import interview_preparation as service
+
+    for func in (service.generate_kickoff, service.generate_preparation):
+        source = inspect.getsource(func)
+        assert "INTERDICTION CENTRALE" in source, f"{func.__name__} n'interdit pas l'invention"
+        assert "TRAJECTOIRE" in source, f"{func.__name__} ne recadre pas sur la trajectoire"
+        assert "je me suis form" in source, f"{func.__name__} ne nomme pas les formulations interdites"
+
+
 def test_every_use_case_asks_for_a_defensible_answer() -> None:
     """Each generation prompt must carry the « récit → réponses » mechanism.
 

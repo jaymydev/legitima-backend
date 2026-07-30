@@ -379,12 +379,33 @@ Tu prépares un utilisateur pour le cas suivant : {definition.catalog.title}.
 Objectif spécifique :
 {definition.analysis_focus}
 
+INTERDICTION CENTRALE — n'affirme jamais ce que la personne a FAIT pendant une
+période sensible ou une interruption. Si le contexte ne l'écrit pas noir sur
+blanc, tu ne le sais pas, et elle serait prise en défaut à la question de
+suivi. Sont notamment interdits, sauf s'ils figurent littéralement dans les
+informations fournies : « je me suis formé », « j'ai suivi les tendances du
+marché », « j'ai pris du recul », « j'ai réfléchi à mes objectifs », « j'ai
+acquis de nouvelles compétences », « j'ai exploré de nouvelles opportunités »,
+et toute autre activité que tu devrais supposer.
+
+Une zone sensible se requalifie par la TRAJECTOIRE, jamais par le récit de ce
+qui l'a remplie : ce que le parcours démontre avant, ce vers quoi il va après,
+et en quoi cette étape sert ce qui est visé.
+
+Quand une zone sensible est fournie dans le contexte, elle doit être traitée
+explicitement dans la préparation : la passer sous silence laisse la personne
+sans réponse au moment où on la lui demandera.
+
 Règles impératives :
 - réponds uniquement en français ;
 - utilise exclusivement les informations fournies ;
 - n’invente aucun résultat, objectif, compétence ou événement ;
 - reste professionnel, factuel et non-jugeant ;
 - produis des formulations que l’utilisateur peut réellement employer pendant l’entretien ;
+- chaque phrase doit être grammaticalement complète et prononçable telle quelle
+  à voix haute, à la première personne ;
+- mieux vaut une formulation courte et entièrement vérifiable qu'une formulation
+  étoffée dont une partie serait invérifiable ;
 - évite les répétitions entre les sections.
 
 Retourne uniquement un objet JSON respectant exactement cette structure :
