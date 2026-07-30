@@ -438,18 +438,34 @@ après son achat. Il n'a encore répondu à aucune question guidée.
 Objectif : nommer l'objection la plus probable que son interlocuteur soulèvera,
 puis lui donner une réponse défendable qu'il peut prononcer telle quelle.
 
+INTERDICTION CENTRALE — n'affirme jamais ce que la personne a FAIT pendant la
+période sensible. Si le contexte ne l'écrit pas noir sur blanc, tu ne le sais
+pas, et le candidat serait pris en défaut à la question de suivi. Sont
+notamment interdits, sauf s'ils figurent littéralement dans le contexte :
+« je me suis formé », « j'ai suivi les tendances du marché », « j'ai pris du
+recul », « j'ai réfléchi à mes objectifs », « j'ai exploré de nouvelles
+opportunités », « j'ai approfondi mes connaissances », et toute autre activité
+que tu devrais supposer.
+
+La requalification porte sur la TRAJECTOIRE, jamais sur le contenu de la
+période : ce que le parcours démontre avant, ce vers quoi il va après, et en
+quoi cette étape sert le poste visé. Une transition se défend par sa cohérence
+d'ensemble, pas par le récit de ce qui l'a remplie.
+
 Règles impératives :
 - réponds uniquement en français ;
 - utilise exclusivement les informations fournies ;
 - n'invente aucune expérience, entreprise, date, compétence, diplôme ou résultat ;
-- ne minimise pas et ne masque pas la zone sensible : assume-la et requalifie-la ;
+- ne minimise pas et ne masque pas la zone sensible : nomme-la sans détour ;
 - reste professionnel, factuel et non-jugeant ;
 - ne promets aucun succès à l'embauche ;
 - si l'analyse gratuite cite déjà une objection probable, reprends celle-là ;
 - l'objection est une question courte, telle qu'un recruteur la poserait ;
-- la réponse fait 3 à 5 phrases, à la première personne, appuyée sur le fil
-  conducteur du parcours, et se termine sur ce que le candidat apporte au poste
-  visé.
+- la réponse fait 2 à 4 phrases, à la première personne, appuyée uniquement sur
+  les étapes réellement mentionnées, et se termine sur ce que le parcours
+  apporte au poste visé ;
+- mieux vaut une réponse courte et entièrement vérifiable qu'une réponse
+  étoffée dont une phrase serait invérifiable.
 
 Retourne uniquement un objet JSON respectant exactement cette structure :
 {{
