@@ -232,3 +232,97 @@ def test_analyze_does_not_log_answer_content(monkeypatch, caplog) -> None:
 
     assert response.status_code == 500
     assert secret_marker not in caplog.text
+
+
+def _kickoff_context() -> dict:
+    return {
+        "target_role": "Product Manager Senior",
+        "career_experiences": "2019-2022 pilotage de projets techniques, 2022-2024 coordination produit, 2025 transition.",
+        "sensitive_point": "Transition de six mois en 2025",
+        "freemium_analysis": "Objection probable : pourquoi cette interruption en 2025 ?",
+    }
+
+
+def test_kickoff_returns_one_objection_and_its_answer(monkeypatch) -> None:
+    model_response = {
+        "objection": "Pourquoi cette interruption de six mois en 2025 ?",
+        "defensible_answer": (
+            "Cette période a été un repositionnement volontaire vers le produit. "
+            "J'y ai consolidé ce que la coordination produit m'avait déjà appris."
+        ),
+    }
+
+    class FakeCompletions:
+        def create(self, **kwargs):
+            prompt = kwargs["messages"][0]["content"]
+            # The lean context must reach the prompt: that is the whole point
+            # of the kickoff, which runs before any guided question.
+            assert "Product Manager Senior" in prompt
+            assert "Transition de six mois en 2025" in prompt
+            assert kwargs["response_format"] == {"type": "json_object"}
+            return SimpleNamespace(
+                choices=[
+                    SimpleNamespace(
+                        message=SimpleNamespace(content=json.dumps(model_response, ensure_ascii=False))
+                    )
+                ]
+            )
+
+    monkeypatch.setenv("OPENAI_API_KEY", "test-key")
+    monkeypatch.setattr(
+        route, "OpenAI", lambda api_key: SimpleNamespace(chat=SimpleNamespace(completions=FakeCompletions()))
+    )
+
+    response = client.post(
+        "/v2/interview-preparation/kickoff",
+        json={"context": _kickoff_context()},
+    )
+
+    assert response.status_code == 200
+    assert response.json() == model_response
+
+
+def test_kickoff_rejects_a_context_with_nothing_to_reason_from() -> None:
+    response = client.post(
+        "/v2/interview-preparation/kickoff",
+        json={"context": {"sensitive_point": "Un trou de six mois"}},
+    )
+
+    # A sensitive point alone gives no career thread to answer from; inventing
+    # one is exactly what the product must never do.
+    assert response.status_code == 422
+
+
+def test_kickoff_rejects_unknown_context_keys() -> None:
+    context = _kickoff_context()
+    context["unexpected_field"] = "valeur"
+
+    response = client.post(
+        "/v2/interview-preparation/kickoff",
+        json={"context": context},
+    )
+
+    assert response.status_code == 422
+
+
+def test_kickoff_does_not_log_context_content(monkeypatch, caplog) -> None:
+    secret_marker = "CONTENU_CONFIDENTIEL_DU_TESTEUR"
+
+    class FailingCompletions:
+        def create(self, **kwargs):
+            raise RuntimeError("temporary failure")
+
+    monkeypatch.setenv("OPENAI_API_KEY", "test-key")
+    monkeypatch.setattr(
+        route, "OpenAI", lambda api_key: SimpleNamespace(chat=SimpleNamespace(completions=FailingCompletions()))
+    )
+
+    context = _kickoff_context()
+    context["career_experiences"] = secret_marker
+    response = client.post(
+        "/v2/interview-preparation/kickoff",
+        json={"context": context},
+    )
+
+    assert response.status_code == 500
+    assert secret_marker not in caplog.text
