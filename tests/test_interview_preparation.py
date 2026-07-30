@@ -259,6 +259,14 @@ def test_kickoff_returns_one_objection_and_its_answer(monkeypatch) -> None:
             # of the kickoff, which runs before any guided question.
             assert "Product Manager Senior" in prompt
             assert "Transition de six mois en 2025" in prompt
+            # The model reliably filled the sensitive period with invented
+            # activity ("je me suis forme", "j'ai suivi les tendances du
+            # marche") until these were named as forbidden. A candidate who
+            # repeats an invented activity is caught out on the follow-up
+            # question, which is worse than not preparing at all.
+            assert "INTERDICTION CENTRALE" in prompt
+            assert "je me suis forme" in prompt.replace("\u00e9", "e")
+            assert "TRAJECTOIRE" in prompt
             assert kwargs["response_format"] == {"type": "json_object"}
             return SimpleNamespace(
                 choices=[
