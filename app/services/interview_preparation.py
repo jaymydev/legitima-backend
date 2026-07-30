@@ -9,7 +9,7 @@ from pydantic import BaseModel, ConfigDict, Field
 
 
 INTERVIEW_PREPARATION_MODEL = "gpt-4o-mini"
-QUESTIONNAIRE_VERSION = "1.2"
+QUESTIONNAIRE_VERSION = "1.3"
 
 
 class InterviewQuestion(BaseModel):
@@ -137,6 +137,11 @@ _ANSWER_SUGGESTIONS = {
     "mobility_motivation": ["Reliez votre motivation à une progression professionnelle.", "Expliquez pourquoi cette mobilité est cohérente maintenant."],
     "transferable_contributions": ["Citez une réalisation connue dans l’entreprise.", "Mentionnez une collaboration utile pour la future équipe."],
     "readiness_gaps": ["Identifiez une compétence à développer sans vous dévaloriser.", "Associez chaque écart à une action d’apprentissage."],
+    "internal_objection": ["Écrivez-la telle que votre interlocuteur la formulerait.", "Pensez au point de votre parcours qui demande le plus d’explication."],
+    "evolution_reservation": ["Écrivez la réserve telle que votre manager l’exprimerait.", "Pensez à ce qu’on vous a déjà opposé sur ce sujet."],
+    "midyear_feared_topic": ["Écrivez le sujet tel qu’il sera amené.", "Pensez à l’écart le plus visible depuis le début de l’année."],
+    "annual_feared_question": ["Écrivez la question exactement comme votre manager la poserait.", "Pensez à l’objectif non atteint ou à la période la plus discutable."],
+    "performance_feared_critique": ["Écrivez la critique telle qu’elle sera formulée.", "Pensez au reproche que vous redoutez le plus d’entendre."],
     "internal_transition_plan": ["Proposez une passation et un calendrier réalistes.", "Précisez comment préserver la continuité de l’activité."],
     "current_scope": ["Distinguez responsabilités officielles et responsabilités déjà prises.", "Citez le périmètre, l’autonomie et les décisions assumées."],
     "desired_evolution": ["Nommez précisément le niveau ou les responsabilités souhaités.", "Expliquez ce qui changerait concrètement dans votre rôle."],
@@ -235,11 +240,12 @@ USE_CASES: dict[str, UseCaseDefinition] = {
                 _question("target_internal_role", "Quelle mobilité interne visez-vous ?", "Précisez le poste, l’équipe ou le métier souhaité."),
                 _question("mobility_motivation", "Pourquoi souhaitez-vous cette mobilité ?", "Expliquez ce que vous cherchez à développer et la cohérence avec votre parcours interne."),
                 _question("transferable_contributions", "Quelles contributions internes soutiennent votre candidature ?", "Citez des réalisations, connaissances de l’organisation ou collaborations transférables."),
+                _question("internal_objection", "Quelle objection interne redoutez-vous ?", "Formulez-la telle qu’elle pourrait vous être opposée."),
                 _question("readiness_gaps", "Quels écarts devez-vous encore combler ?", "Compétences, exposition métier ou expérience à acquérir.", required=False),
                 _question("internal_transition_plan", "Comment faciliteriez-vous la transition ?", "Passation, calendrier, continuité de service et prise de poste.", required=False),
             ],
         ),
-        analysis_focus="Construire un argumentaire de mobilité qui valorise la connaissance de l’organisation, démontre les compétences transférables et prépare une transition responsable.",
+        analysis_focus="Construire un argumentaire de mobilité qui valorise la connaissance de l’organisation et démontre les compétences transférables. Nommer l’objection interne la plus probable et y répondre de façon défendable, en ancrant la légitimité du candidat dans ce que son parcours démontre déjà.",
     ),
     "role_evolution": UseCaseDefinition(
         catalog=InterviewUseCase(
@@ -253,11 +259,12 @@ USE_CASES: dict[str, UseCaseDefinition] = {
                 _question("desired_evolution", "Quelle évolution demandez-vous ?", "Précisez le niveau, les responsabilités ou le périmètre souhaité."),
                 _question("readiness_evidence", "Quels faits montrent que vous êtes prêt ?", "Responsabilités prises, décisions, résultats ou reconnaissance reçue."),
                 _question("business_impact", "Quel impact cette évolution permettrait-elle ?", "Reliez votre demande aux besoins de l’équipe ou de l’organisation."),
+                _question("evolution_reservation", "Quelle réserve pourrait-on vous opposer ?", "Formulez-la telle que votre interlocuteur l’exprimerait."),
                 _question("development_areas", "Quels axes devez-vous encore renforcer ?", "Présentez-les avec lucidité et proposez une manière de progresser.", required=False),
                 _question("evolution_conditions", "Quelles prochaines étapes souhaitez-vous convenir ?", "Critères, calendrier, accompagnement ou objectifs de validation."),
             ],
         ),
-        analysis_focus="Préparer une demande d’évolution fondée sur des preuves de maturité, l’impact attendu et des prochaines étapes concrètes, sans transformer l’entretien en revendication abstraite.",
+        analysis_focus="Préparer une demande d’évolution fondée sur des preuves de maturité, l’impact attendu et des prochaines étapes concrètes, sans transformer l’entretien en revendication abstraite. Anticiper la réserve que l’interlocuteur opposera et fournir une réponse défendable adossée aux faits fournis.",
     ),
     "mid_year": UseCaseDefinition(
         catalog=InterviewUseCase(
@@ -271,11 +278,12 @@ USE_CASES: dict[str, UseCaseDefinition] = {
                 _question("objectives_progress", "Où en êtes-vous sur vos objectifs ?", "Distinguez ce qui est terminé, en cours ou retardé."),
                 _question("achievements", "Quelles contributions voulez-vous mettre en avant ?", "Mentionnez des résultats ou effets concrets."),
                 _question("obstacles", "Quels obstacles avez-vous rencontrés ?", "Décrivez les faits et leur impact, sans chercher de responsable.", required=False),
+                _question("midyear_feared_topic", "Quel sujet redoutez-vous de voir arriver ?", "Formulez-le tel qu’il sera amené dans l’échange."),
                 _question("next_priorities", "Quelles sont vos priorités pour les six prochains mois ?", "Indiquez ce que vous voulez sécuriser ou faire progresser."),
                 _question("support_needed", "De quel soutien avez-vous besoin ?", "Arbitrage, moyens, formation, disponibilité ou clarification.", required=False),
             ],
         ),
-        analysis_focus="Produire un bilan intermédiaire factuel, préparer les arbitrages et formuler des demandes de soutien concrètes.",
+        analysis_focus="Produire un bilan intermédiaire factuel, préparer les arbitrages et formuler des demandes de soutien concrètes. Anticiper le sujet qui sera opposé au candidat et préparer une réponse défendable qui assume les faits sans les subir.",
     ),
     "annual_review": UseCaseDefinition(
         catalog=InterviewUseCase(
@@ -290,11 +298,12 @@ USE_CASES: dict[str, UseCaseDefinition] = {
                 _question("objectives_results", "Quels objectifs ont été atteints ou non atteints ?", "Ajoutez les résultats disponibles et le contexte utile."),
                 _question("skills_growth", "Quelles compétences avez-vous développées ?", "Précisez comment elles ont été mises en pratique."),
                 _question("difficulties", "Quelles difficultés doivent être abordées ?", "Restez factuel sur les causes et les conséquences.", required=False),
+                _question("annual_feared_question", "Quelle question difficile redoutez-vous ?", "Formulez-la telle que votre manager pourrait la poser."),
                 _question("career_direction", "Quelle évolution souhaitez-vous ?", "Responsabilités, expertise, mobilité ou conditions de réussite."),
                 _question("next_year_goals", "Quels objectifs proposez-vous pour l’année à venir ?", "Formulez des priorités réalistes et observables."),
             ],
         ),
-        analysis_focus="Créer un bilan annuel équilibré, étayer la contribution et préparer une discussion d’évolution réaliste.",
+        analysis_focus="Créer un bilan annuel équilibré, étayer la contribution et préparer une discussion d’évolution réaliste. Anticiper la question difficile que le manager posera et construire une réponse défendable : assumer l’écart, le requalifier par la trajectoire, et rattacher la suite à ce que le parcours démontre.",
     ),
     "performance_review": UseCaseDefinition(
         catalog=InterviewUseCase(
@@ -308,11 +317,12 @@ USE_CASES: dict[str, UseCaseDefinition] = {
                 _question("measurable_results", "Quels résultats pouvez-vous démontrer ?", "Ajoutez des indicateurs ou exemples vérifiables."),
                 _question("performance_gaps", "Quels écarts ou critiques ont été formulés ?", "Décrivez-les précisément, sans les minimiser.", required=False),
                 _question("context_factors", "Quels facteurs de contexte ont influencé les résultats ?", "Séparez les faits externes de vos propres décisions.", required=False),
+                _question("performance_feared_critique", "Quelle critique redoutez-vous le plus ?", "Formulez-la telle qu’elle pourrait vous être adressée."),
                 _question("improvement_actions", "Qu’avez-vous déjà engagé pour progresser ?", "Actions, nouvelles méthodes, suivi ou apprentissage."),
                 _question("support_and_commitments", "Quels soutiens et engagements proposer ?", "Précisez ce que vous demandez et ce que vous vous engagez à faire."),
             ],
         ),
-        analysis_focus="Préparer une réponse responsable et factuelle, distinguer résultats et contexte, puis proposer un plan d’amélioration mesurable.",
+        analysis_focus="Préparer une réponse responsable et factuelle, distinguer résultats et contexte, puis proposer un plan d’amélioration mesurable. Anticiper la critique la plus dure qui sera formulée et y répondre de façon défendable, sans se dévaloriser ni nier les faits.",
     ),
 }
 
