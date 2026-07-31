@@ -54,6 +54,12 @@ monthly spend cap on the OpenAI account, not this limit.
 Each scope has its own counter, so one full preparation — analyse, kickoff,
 guided preparation — spends one call from three separate budgets.
 
+A request rejected by schema validation never reaches its handler, so the
+per-route limit above does not count it — only the 120/hour default does. The
+routes that cost money are reached only by well-formed requests, which are
+counted. Testing a per-route limit therefore needs a request the handler
+actually accepts.
+
 Exceeding a limit returns `429` with a `Retry-After` header in seconds and:
 
 ```json

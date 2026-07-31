@@ -45,8 +45,9 @@ client de la chaîne.
 La première version lisait par la droite, en supposant que le bout droit était
 ce que notre propre proxy avait observé. Mesuré sur le service déployé, c'était
 faux : Render ajoute un intermédiaire dont l'adresse **change d'une requête à
-l'autre**, donc chaque appel ouvrait un seau neuf. 76 requêtes contre une limite
-de 20 n'ont produit aucun 429 — la limite était décorative. Lire l'IP du socket
+l'autre**, donc chaque appel ouvrait un seau neuf : le compteur renvoyé dans
+`X-RateLimit-Remaining` remontait au lieu de descendre. Depuis le correctif il
+décroît d'une unité par requête. Lire l'IP du socket
 serait tout aussi faux dans l'autre sens : tout le monde dans un seul seau,
 derrière le proxy, et l'app refuserait du trafic réel.
 

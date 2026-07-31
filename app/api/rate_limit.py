@@ -57,8 +57,9 @@ def client_ip(request: Request) -> str:
     forge sit on the left and the rightmost is what our own proxy observed.
     Measured against the deployed service, that was wrong in a way no test
     caught: Render appends a hop whose address *changes between requests*, so
-    every call landed in a fresh bucket. 76 requests against a limit of 20
-    produced no 429 at all — the limit was decorative.
+    every call landed in a fresh bucket. The tell was `X-RateLimit-Remaining`
+    climbing back up between requests instead of descending; it now falls by
+    one per call.
 
     The leftmost entry is the real client, stable across requests, and is what
     Render documents. A determined caller can forge it and mint a new bucket
