@@ -39,11 +39,24 @@ L'app iOS tenait autrefois un quota dans `UserDefaults`. Il ne protégeait rien
 — une réinstallation le remettait à zéro — et il a été retiré au passage en app
 gratuite. Ceci le remplace.
 
-L'adresse est lue **par la droite** de `X-Forwarded-For`. Lire par la gauche
-laisserait n'importe qui forger une adresse et s'offrir un quota neuf à chaque
-requête ; lire l'IP du socket mettrait tout le monde dans le même seau, derrière
-le proxy de Render, et l'app se mettrait à refuser du trafic réel. Si Render
-ajoutait un intermédiaire, `TRUSTED_PROXY_HOPS` (défaut `1`) est le réglage.
+L'adresse est lue **par la gauche** de `X-Forwarded-For`, c'est-à-dire au bout
+client de la chaîne.
+
+La première version lisait par la droite, en supposant que le bout droit était
+ce que notre propre proxy avait observé. Mesuré sur le service déployé, c'était
+faux : Render ajoute un intermédiaire dont l'adresse **change d'une requête à
+l'autre**, donc chaque appel ouvrait un seau neuf. 76 requêtes contre une limite
+de 20 n'ont produit aucun 429 — la limite était décorative. Lire l'IP du socket
+serait tout aussi faux dans l'autre sens : tout le monde dans un seul seau,
+derrière le proxy, et l'app refuserait du trafic réel.
+
+Contrepartie assumée : quelqu'un qui forge l'entrée de gauche s'offre un quota
+neuf à chaque requête. Le filet contre ça n'est pas cette limite, c'est le
+plafond mensuel OpenAI. Le choix est entre une limite qui s'applique à tout le
+monde et une limite qui ne s'appliquait à personne.
+
+`SKIPPED_FORWARDED_ENTRIES` (défaut `0`) ignore autant d'entrées de tête, si un
+proxy à nous est un jour placé devant.
 
 Les compteurs vivent en mémoire, ce qui est correct pour une instance unique.
 Passer à plusieurs instances donnerait à chacune ses propres compteurs et

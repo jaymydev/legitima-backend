@@ -3,9 +3,13 @@
 Two failure modes matter more than the counting itself:
   - keying on the socket peer would put every user behind Render's proxy in
     one bucket, and the app would start refusing real traffic;
-  - trusting the left of `X-Forwarded-For` would let a caller mint a fresh
-    quota per request by forging a header.
-Both are covered below.
+  - keying on anything the platform varies per request — such as the rightmost
+    `X-Forwarded-For` entry, which is what this originally used — gives every
+    call a fresh bucket, and the limit stops limiting. 76 requests against a
+    limit of 20 produced no 429 before that was found.
+The second one is the reason `test_the_key_is_stable_across_requests` exists:
+no unit test can see the deployed proxy, but it can pin the rule that the key
+must come from a position the platform does not rotate.
 """
 
 import pytest
@@ -38,23 +42,34 @@ def test_client_ip_reads_the_forwarded_header_when_present() -> None:
     assert _client_ip({"X-Forwarded-For": " 203.0.113.7 "}) == "203.0.113.7"
 
 
-def test_client_ip_ignores_addresses_the_caller_prepended() -> None:
-    # Each hop appends, so anything a caller forges lands on the left. Reading
-    # from the left would hand out a fresh quota for every invented address.
-    forged = {"X-Forwarded-For": "1.1.1.1, 2.2.2.2, 203.0.113.7"}
-    assert _client_ip(forged) == "203.0.113.7"
+def test_client_ip_reads_the_client_end_of_the_chain() -> None:
+    # Render appends its own hop, and that address changes between requests.
+    # Reading from the right therefore produced a new bucket per call. The
+    # client sits on the left and is stable, which is what a counter needs.
+    chain = {"X-Forwarded-For": "203.0.113.7, 10.11.12.13"}
+    assert _client_ip(chain) == "203.0.113.7"
 
 
-def test_client_ip_honours_the_trusted_hop_count(monkeypatch: pytest.MonkeyPatch) -> None:
-    monkeypatch.setenv("TRUSTED_PROXY_HOPS", "2")
+def test_the_key_is_stable_across_requests() -> None:
+    """The property the original version failed: the same caller must key to
+    the same bucket even when the platform's own hop rotates."""
+    keys = {
+        _client_ip({"X-Forwarded-For": f"203.0.113.7, 10.11.12.{tail}"})
+        for tail in range(20)
+    }
+    assert keys == {"203.0.113.7"}
+
+
+def test_client_ip_can_skip_leading_entries(monkeypatch: pytest.MonkeyPatch) -> None:
+    monkeypatch.setenv("SKIPPED_FORWARDED_ENTRIES", "1")
     assert _client_ip({"X-Forwarded-For": "1.1.1.1, 203.0.113.7, 10.0.0.9"}) == "203.0.113.7"
 
     # A header shorter than the configured depth must still yield an address
     # rather than raise: an IndexError here would 500 every request.
     assert _client_ip({"X-Forwarded-For": "203.0.113.7"}) == "203.0.113.7"
 
-    monkeypatch.setenv("TRUSTED_PROXY_HOPS", "not-a-number")
-    assert _client_ip({"X-Forwarded-For": "1.1.1.1, 203.0.113.7"}) == "203.0.113.7"
+    monkeypatch.setenv("SKIPPED_FORWARDED_ENTRIES", "not-a-number")
+    assert _client_ip({"X-Forwarded-For": "203.0.113.7, 10.0.0.9"}) == "203.0.113.7"
 
 
 def _isolated_app(limit: str) -> FastAPI:
@@ -104,14 +119,35 @@ def test_one_caller_hitting_the_limit_does_not_block_another() -> None:
     assert client.get("/costly", headers={"X-Forwarded-For": "198.51.100.4"}).status_code == 200
 
 
-def test_forging_the_header_does_not_buy_a_fresh_quota() -> None:
+def test_a_rotating_platform_hop_does_not_buy_a_fresh_quota() -> None:
+    """The exact production failure, in a test.
+
+    Render appends a hop whose address differs from one request to the next.
+    Keyed on that, each call opened a new bucket and the limit never fired.
+    """
     client = TestClient(_isolated_app("2/hour"))
 
     for index in range(2):
-        client.get("/costly", headers={"X-Forwarded-For": f"9.9.9.{index}, 203.0.113.7"})
+        client.get("/costly", headers={"X-Forwarded-For": f"203.0.113.7, 10.11.12.{index}"})
 
-    refused = client.get("/costly", headers={"X-Forwarded-For": "9.9.9.42, 203.0.113.7"})
+    refused = client.get("/costly", headers={"X-Forwarded-For": "203.0.113.7, 10.11.12.99"})
     assert refused.status_code == 429
+
+
+def test_a_forged_leading_entry_is_a_known_and_accepted_weakness() -> None:
+    """Keying on the client end means a caller who forges it gets a new
+    bucket. Pinned deliberately, so nobody reads it as an oversight: the
+    alternative measured in production was a limit that applied to no one,
+    and the real backstop is the OpenAI monthly spend cap.
+    """
+    client = TestClient(_isolated_app("2/hour"))
+
+    for _ in range(3):
+        client.get("/costly", headers={"X-Forwarded-For": "203.0.113.7"})
+
+    assert (
+        client.get("/costly", headers={"X-Forwarded-For": "203.0.113.8"}).status_code == 200
+    )
 
 
 def test_health_is_never_counted() -> None:
