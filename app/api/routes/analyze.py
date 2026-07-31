@@ -4,10 +4,11 @@ import re
 import unicodedata
 from typing import Iterable
 
-from fastapi import APIRouter, HTTPException
+from fastapi import APIRouter, HTTPException, Request, Response
 from openai import OpenAI
 from pydantic import BaseModel, ConfigDict, ValidationError, field_validator
 
+from app.api.rate_limit import AI_GENERATION_LIMIT, limiter
 from app.observability.logging import logger
 
 router = APIRouter()
@@ -387,7 +388,10 @@ def _generate_analysis(
 
 
 @router.post("/analyze", response_model=AnalyzeResponseV1, tags=["Analyze"])
-def analyze(payload: AnalyzeRequest) -> AnalyzeResponseV1:
+@limiter.limit(AI_GENERATION_LIMIT)
+def analyze(request: Request, response: Response, payload: AnalyzeRequest) -> AnalyzeResponseV1:
+    # `request` is unused by the handler; slowapi reads it to identify the
+    # caller, and refuses to decorate a route that does not declare it.
     api_key = os.environ.get("OPENAI_API_KEY")
     if not api_key:
         logger.warning("Analyze rejected reason=missing_openai_api_key")

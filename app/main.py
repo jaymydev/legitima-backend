@@ -1,6 +1,10 @@
 from fastapi import FastAPI
+from slowapi import _rate_limit_exceeded_handler
+from slowapi.errors import RateLimitExceeded
+from slowapi.middleware import SlowAPIMiddleware
 
 from app.api.health import router as health_router
+from app.api.rate_limit import limiter
 from app.api.routes.analyze import router as analyze_router
 from app.api.routes.contexte import router as contexte_router
 from app.api.routes.cv import router as cv_router
@@ -19,6 +23,12 @@ from app.observability.logging import configure_logging, logger
 def create_app() -> FastAPI:
     configure_logging()
     app = FastAPI(title=settings.app_name, version=settings.version)
+
+    # Registered before the routers so the blanket limit covers every path,
+    # including any added later without a decorator.
+    app.state.limiter = limiter
+    app.add_exception_handler(RateLimitExceeded, _rate_limit_exceeded_handler)
+    app.add_middleware(SlowAPIMiddleware)
 
     app.include_router(health_router)
     app.include_router(analyze_router)

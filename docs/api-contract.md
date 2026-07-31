@@ -30,6 +30,38 @@ http://localhost:8000
 - All CRUD endpoints return `400` with `{"detail":"X-User-Id header is required"}` when `X-User-Id` is missing
 - CRUD routes scope reads and writes using the provided `X-User-Id`
 
+## Rate limiting
+
+Every route is rate limited per client IP address. The address is read from
+the right-hand end of `X-Forwarded-For`, so entries a caller prepends cannot
+buy a fresh quota. `TRUSTED_PROXY_HOPS` (default `1`) selects how far from the
+right to read, should another proxy ever sit in front of the service.
+
+| Scope | Limit |
+| --- | --- |
+| `POST /analyze` | 10 / hour |
+| `POST /v2/interview-preparation/analyze` | 10 / hour |
+| `POST /v2/interview-preparation/kickoff` | 10 / hour |
+| `POST /cv/parse` | 20 / hour |
+| every other route | 120 / hour |
+| `GET /health` | not counted |
+
+Each scope has its own counter, so one full preparation — analyse, kickoff,
+guided preparation — spends one call from three separate budgets.
+
+Exceeding a limit returns `429` with a `Retry-After` header in seconds and:
+
+```json
+{ "error": "Rate limit exceeded: 10 per 1 hour" }
+```
+
+Successful responses carry `X-RateLimit-Limit`, `X-RateLimit-Remaining` and
+`X-RateLimit-Reset`.
+
+Counters live in the process memory of a single instance. Running more than
+one instance gives each its own counters and multiplies every limit by the
+instance count; that is the point at which this needs shared storage.
+
 ## Health endpoint
 
 ### `GET /health`
