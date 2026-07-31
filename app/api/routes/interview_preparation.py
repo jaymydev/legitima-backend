@@ -1,11 +1,15 @@
-from __future__ import annotations
+# Deliberately no `from __future__ import annotations` here. Under postponed
+# evaluation FastAPI cannot resolve the body model through slowapi's decorator
+# wrapper, and silently downgrades `payload` to a query parameter — every POST
+# then answers 422. The annotations below need no forward references.
 
 import os
 
-from fastapi import APIRouter, HTTPException
+from fastapi import APIRouter, HTTPException, Request, Response
 from openai import OpenAI
 from pydantic import BaseModel
 
+from app.api.rate_limit import AI_GENERATION_LIMIT, limiter
 from app.observability.logging import logger
 from app.services.interview_preparation import (
     InterviewPreparationRequest,
@@ -34,7 +38,10 @@ def get_interview_use_cases() -> InterviewUseCaseCatalog:
 
 
 @router.post("/kickoff", response_model=PremiumKickoffResponse)
+@limiter.limit(AI_GENERATION_LIMIT)
 def kickoff_premium_preparation(
+    request: Request,
+    response: Response,
     payload: PremiumKickoffRequest,
 ) -> PremiumKickoffResponse:
     """First premium deliverable, generated at purchase time.
@@ -59,17 +66,23 @@ def kickoff_premium_preparation(
         bool(payload.context.freemium_analysis.strip()),
     )
     try:
-        response = generate_kickoff(OpenAI(api_key=api_key), payload.context)
+        # Not named `response`: that parameter is the Response object slowapi
+        # writes the rate-limit headers into, and rebinding it here would hand
+        # slowapi a Pydantic model instead.
+        kickoff = generate_kickoff(OpenAI(api_key=api_key), payload.context)
     except Exception as exc:
         logger.exception("Premium kickoff failed")
         raise HTTPException(status_code=500, detail="Premium kickoff generation failed") from exc
 
     logger.info("Premium kickoff completed")
-    return response
+    return kickoff
 
 
 @router.post("/analyze", response_model=InterviewPreparationResponse)
+@limiter.limit(AI_GENERATION_LIMIT)
 def analyze_interview_preparation(
+    request: Request,
+    response: Response,
     payload: InterviewPreparationRequest,
 ) -> InterviewPreparationResponse:
     definition = get_use_case(payload.use_case_id)
@@ -96,7 +109,8 @@ def analyze_interview_preparation(
         len(answers),
     )
     try:
-        response = generate_preparation(
+        # See the kickoff handler: `response` belongs to slowapi.
+        preparation = generate_preparation(
             OpenAI(api_key=api_key),
             definition,
             answers,
@@ -113,6 +127,6 @@ def analyze_interview_preparation(
     logger.info(
         "Interview preparation completed use_case_id=%s section_count=%s",
         payload.use_case_id,
-        len(response.sections),
+        len(preparation.sections),
     )
-    return response
+    return preparation

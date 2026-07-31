@@ -25,6 +25,33 @@ Variables d’environnement attendues (placeholders) :
 - `SUPABASE_ANON_KEY`
 - `X-User-Id` (header requis pour toutes les routes CRUD, transmis par le client)
 
+## 🚦 Limitation de débit
+
+Les endpoints d'IA ne sont pas authentifiés. La seule chose qui sépare une
+boucle automatisée du compte OpenAI est la limitation par adresse IP :
+
+- `POST /analyze`, `/v2/interview-preparation/analyze`, `/v2/interview-preparation/kickoff` : **10 / heure**
+- `POST /cv/parse` : **20 / heure**
+- toutes les autres routes : **120 / heure**
+- `GET /health` : jamais compté (Render l'interroge en continu)
+
+L'app iOS tenait autrefois un quota dans `UserDefaults`. Il ne protégeait rien
+— une réinstallation le remettait à zéro — et il a été retiré au passage en app
+gratuite. Ceci le remplace.
+
+L'adresse est lue **par la droite** de `X-Forwarded-For`. Lire par la gauche
+laisserait n'importe qui forger une adresse et s'offrir un quota neuf à chaque
+requête ; lire l'IP du socket mettrait tout le monde dans le même seau, derrière
+le proxy de Render, et l'app se mettrait à refuser du trafic réel. Si Render
+ajoutait un intermédiaire, `TRUSTED_PROXY_HOPS` (défaut `1`) est le réglage.
+
+Les compteurs vivent en mémoire, ce qui est correct pour une instance unique.
+Passer à plusieurs instances donnerait à chacune ses propres compteurs et
+multiplierait chaque limite d'autant : c'est le moment où il faudra Redis.
+
+**Ce n'est pas un plafond de dépense.** Le filet de sécurité reste la limite
+mensuelle à régler dans le tableau de bord OpenAI.
+
 ## 🚫 Ce qui est intentionnellement NON implémenté (V1)
 - Aucune logique métier.
 - Aucune gestion d’authentification côté backend (pas de login/signup, pas de JWT).

@@ -1,9 +1,10 @@
 import time
 from typing import Annotated, Optional
 
-from fastapi import APIRouter, File, Header, HTTPException, UploadFile
+from fastapi import APIRouter, File, Header, HTTPException, Request, Response, UploadFile
 from fastapi.concurrency import run_in_threadpool
 
+from app.api.rate_limit import CV_PARSE_LIMIT, limiter
 from app.services.cv_parse import (
     CVParseResponse,
     ensure_supported_cv_upload,
@@ -16,7 +17,10 @@ router = APIRouter()
 
 
 @router.post("/cv/parse", response_model=CVParseResponse, tags=["CV"])
+@limiter.limit(CV_PARSE_LIMIT)
 async def parse_cv(
+    request: Request,
+    response: Response,
     file: UploadFile = File(...),
     test_error: Annotated[Optional[str], Header(alias="X-CV-Parse-Test-Error")] = None,
 ) -> CVParseResponse:
