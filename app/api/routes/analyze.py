@@ -273,8 +273,10 @@ def _parse_analysis_response(content: str) -> AnalyzeResponseV1:
     try:
         parsed = json.loads(content)
     except Exception as exc:
+        # The reason stays in the log. A decode error quotes the surrounding
+        # text, and that text is the model's reading of someone's career.
         logger.warning("Analyze parse failure reason=invalid_json")
-        raise HTTPException(status_code=500, detail=f"Failed to parse model response as JSON: {exc}") from exc
+        raise HTTPException(status_code=500, detail="Failed to parse model response as JSON") from exc
 
     if not isinstance(parsed, dict):
         logger.warning("Analyze parse failure reason=not_json_object")
@@ -371,7 +373,11 @@ def _generate_analysis(
             payload.meta.target_market,
             payload.meta.interview_type,
         )
-        raise HTTPException(status_code=500, detail=f"OpenAI API call failed: {exc}") from exc
+        # Never the upstream text: OpenAI answers a bad credential with
+        # "Incorrect API key provided: sk-...", and this endpoint takes no
+        # authentication, so interpolating it published the key to anyone who
+        # asked. `logger.exception` above keeps the detail where it belongs.
+        raise HTTPException(status_code=500, detail="OpenAI API call failed") from exc
 
     content = completion.choices[0].message.content if completion.choices else None
     if not content:
