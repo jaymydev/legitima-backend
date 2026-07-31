@@ -5,8 +5,8 @@ Two failure modes matter more than the counting itself:
     one bucket, and the app would start refusing real traffic;
   - keying on anything the platform varies per request — such as the rightmost
     `X-Forwarded-For` entry, which is what this originally used — gives every
-    call a fresh bucket, and the limit stops limiting. 76 requests against a
-    limit of 20 produced no 429 before that was found.
+    call a fresh bucket, and the limit stops limiting. The tell was
+    `X-RateLimit-Remaining` climbing back up between requests.
 The second one is the reason `test_the_key_is_stable_across_requests` exists:
 no unit test can see the deployed proxy, but it can pin the rule that the key
 must come from a position the platform does not rotate.

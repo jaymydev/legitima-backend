@@ -182,7 +182,13 @@ def test_analyze_returns_error_when_openai_call_fails(monkeypatch) -> None:
     response = client.post("/analyze", json=payload)
 
     assert response.status_code == 500
-    assert "OpenAI API call failed: upstream unavailable" == response.json()["detail"]
+    # Deliberately not the upstream text. This used to assert
+    # "OpenAI API call failed: upstream unavailable", which pinned the
+    # interpolation in place — and OpenAI phrases a bad credential as
+    # "Incorrect API key provided: sk-...", so the endpoint handed the key to
+    # any caller. The reason lives in the log now.
+    assert response.json()["detail"] == "OpenAI API call failed"
+    assert "upstream unavailable" not in response.text
 
 
 def test_analyze_returns_error_when_french_requirement_still_fails_after_retry(monkeypatch) -> None:
