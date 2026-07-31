@@ -32,10 +32,15 @@ http://localhost:8000
 
 ## Rate limiting
 
-Every route is rate limited per client IP address. The address is read from
-the right-hand end of `X-Forwarded-For`, so entries a caller prepends cannot
-buy a fresh quota. `TRUSTED_PROXY_HOPS` (default `1`) selects how far from the
-right to read, should another proxy ever sit in front of the service.
+Every route is rate limited per client IP address, read from the **leftmost**
+`X-Forwarded-For` entry. Render appends a hop whose address changes between
+requests, so keying on the right-hand end gave every call a fresh bucket and
+the limits never fired. `SKIPPED_FORWARDED_ENTRIES` (default `0`) ignores that
+many leading entries, should a proxy of our own ever be put in front.
+
+A caller who forges the leading entry gets a fresh quota per request. That is
+a known weakness of keying on the client end; the backstop against it is the
+monthly spend cap on the OpenAI account, not this limit.
 
 | Scope | Limit |
 | --- | --- |
