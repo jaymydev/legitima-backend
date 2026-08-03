@@ -155,6 +155,11 @@ docs/
 tests/
 ```
 
+## Licence
+
+Code under the [MIT licence](LICENSE) — read it, change it, reuse it, keep the
+copyright line. The name Legitima and the visual identity are not covered.
+
 [AGENTS.md](AGENTS.md) holds the product boundaries: never invent experience or
 credentials, never promise hiring success, never hide a sensitive period, and
 keep endpoints small with business logic outside the handlers.
