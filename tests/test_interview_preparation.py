@@ -3,6 +3,7 @@ from types import SimpleNamespace
 
 from fastapi.testclient import TestClient
 
+from app.api import errors
 from app.api.routes import interview_preparation as route
 from app.services.interview_preparation import QUESTIONNAIRE_VERSION
 from app.main import app
@@ -64,7 +65,10 @@ def test_analyze_rejects_missing_required_answers() -> None:
     )
 
     assert response.status_code == 422
-    assert "Missing required answers" in response.json()["detail"]
+    # Which answers are missing is a client-contract detail: it goes to the log,
+    # not to the person waiting on the screen.
+    assert response.json()["code"] == errors.PREPARATION_INVALID_REQUEST
+    assert "question_id" not in response.text
 
 
 def test_analyze_rejects_stale_questionnaire_version() -> None:
@@ -78,7 +82,7 @@ def test_analyze_rejects_stale_questionnaire_version() -> None:
     )
 
     assert response.status_code == 422
-    assert response.json()["detail"] == "Questionnaire version is no longer supported"
+    assert response.json()["code"] == errors.PREPARATION_INVALID_REQUEST
 
 
 def test_analyze_returns_specialized_structured_preparation(monkeypatch) -> None:

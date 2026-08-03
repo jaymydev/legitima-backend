@@ -11,6 +11,18 @@ from fastapi import HTTPException
 from pydantic import BaseModel, ConfigDict
 from pypdf import PdfReader
 
+from app.api.errors import (
+    CV_FILE_TOO_LARGE,
+    CV_IMAGE_NO_TEXT,
+    CV_IMAGE_UNREADABLE,
+    CV_NO_EXPERIENCES,
+    CV_OCR_UNAVAILABLE,
+    CV_PDF_EXPECTED,
+    CV_PDF_NO_TEXT,
+    CV_PDF_UNREADABLE,
+    CV_UNSUPPORTED_FILE_TYPE,
+    user_facing_error,
+)
 from app.observability.logging import logger
 
 SUPPORTED_IMAGE_TYPES = {
@@ -106,18 +118,15 @@ class CVParseResponse(BaseModel):
 def ensure_supported_cv_upload(content_type: str | None) -> str:
     normalized = (content_type or "").strip().lower()
     if normalized not in SUPPORTED_CONTENT_TYPES:
-        raise HTTPException(
-            status_code=415,
-            detail="Unsupported file type. Supported types: application/pdf, image/jpeg, image/png",
-        )
+        raise user_facing_error(CV_UNSUPPORTED_FILE_TYPE)
     return normalized
 
 
 def ensure_cv_file_size(file_bytes: bytes) -> None:
     if len(file_bytes) > MAX_CV_FILE_SIZE_BYTES:
-        raise HTTPException(
-            status_code=413,
-            detail=f"CV file is too large. Maximum size is {MAX_CV_FILE_SIZE_BYTES} bytes",
+        raise user_facing_error(
+            CV_FILE_TOO_LARGE,
+            max_megabytes=MAX_CV_FILE_SIZE_BYTES // (1024 * 1024),
         )
 
 
@@ -146,15 +155,16 @@ def parse_cv_file(
         try:
             extracted_text = _extract_text_from_image(file_bytes)
         except RuntimeError as exc:
-            raise HTTPException(status_code=500, detail=str(exc)) from exc
+            # "OCR dependencies are not installed" tells the reader which of the
+            # two Render services answered. That belongs in the log, not on a
+            # screen where it means nothing to the person reading it.
+            logger.error("CV OCR unavailable reason=%s", exc)
+            raise user_facing_error(CV_OCR_UNAVAILABLE) from exc
         except Exception as exc:
-            raise HTTPException(status_code=422, detail="The image could not be read") from exc
+            raise user_facing_error(CV_IMAGE_UNREADABLE) from exc
 
         if not extracted_text.strip():
-            raise HTTPException(
-                status_code=422,
-                detail="No extractable text was found in the image. Upload a readable CV image.",
-            )
+            raise user_facing_error(CV_IMAGE_NO_TEXT)
         response = _response_from_extracted_text(extracted_text)
         _log_parse_timing(
             content_type=content_type,
@@ -166,21 +176,15 @@ def parse_cv_file(
         return response
 
     if content_type != "application/pdf":
-        raise HTTPException(
-            status_code=422,
-            detail="Image CV parsing is not currently supported. Upload a text-based PDF.",
-        )
+        raise user_facing_error(CV_PDF_EXPECTED)
 
     try:
         extracted_text = _extract_text_from_pdf(file_bytes)
     except Exception as exc:
-        raise HTTPException(status_code=422, detail="The PDF could not be read") from exc
+        raise user_facing_error(CV_PDF_UNREADABLE) from exc
 
     if not extracted_text.strip():
-        raise HTTPException(
-            status_code=422,
-            detail="No extractable text was found in the PDF. Upload a text-based PDF.",
-        )
+        raise user_facing_error(CV_PDF_NO_TEXT)
     response = _response_from_extracted_text(extracted_text)
     _log_parse_timing(
         content_type=content_type,
@@ -369,10 +373,7 @@ def _run_ocr_attempts(
 def _response_from_extracted_text(extracted_text: str) -> CVParseResponse:
     result = parse_cv_text(extracted_text)
     if not result.experiences:
-        raise HTTPException(
-            status_code=422,
-            detail="No exploitable professional experiences were found in this document. Verify that it is a readable CV.",
-        )
+        raise user_facing_error(CV_NO_EXPERIENCES)
     return result
 
 

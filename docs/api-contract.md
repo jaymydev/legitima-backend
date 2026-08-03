@@ -73,6 +73,76 @@ Counters live in the process memory of a single instance. Running more than
 one instance gives each its own counters and multiplies every limit by the
 instance count; that is the point at which this needs shared storage.
 
+## Error responses
+
+The five routes the iOS client calls answer a failure with two fields:
+
+```json
+{
+  "detail": "Aucun texte n'a pu être lu sur cette photo. Reprenez-la à plat, bien éclairée et sans reflet, ou importez votre CV en PDF.",
+  "code": "cv_image_no_text"
+}
+```
+
+`detail` is French prose meant to be shown to the user unchanged — the iOS app
+displays it as written. It is copy, and it may be reworded at any time.
+
+`code` is the stable half of the contract. A client that wants to phrase the
+error itself, or branch on what happened, matches on `code` and never on the
+sentence. Codes are added, not renamed.
+
+`detail` remains a plain string in its usual position, so a client that only
+reads `detail` — every version shipped so far — keeps working unchanged.
+
+| `code` | Status | Raised when |
+| --- | --- | --- |
+| `invalid_request` | 422 | the request body failed validation; see `fields` |
+| `service_unavailable` | 500 | the service cannot reach its model provider |
+| `cv_unsupported_file_type` | 415 | the upload is not a PDF, a JPEG or a PNG |
+| `cv_file_too_large` | 413 | the upload exceeds 10 MiB |
+| `cv_image_unreadable` | 422 | the image could not be decoded |
+| `cv_image_no_text` | 422 | OCR ran and found no text |
+| `cv_ocr_unavailable` | 500 | the deployed service has no working OCR engine |
+| `cv_pdf_expected` | 422 | the content type reached the PDF branch without being a PDF |
+| `cv_pdf_unreadable` | 422 | the PDF could not be opened |
+| `cv_pdf_no_text` | 422 | the PDF carries no extractable text, typically a scan |
+| `cv_no_experiences` | 422 | text was extracted but no experience row was recognised |
+| `analysis_generation_failed` | 500 | the analysis call failed, or its answer could not be read |
+| `analysis_invalid_model_response` | 422 | the model's answer did not match the output schema |
+| `analysis_quality_insufficient` | 500 | the answer still failed the French quality rules after one retry |
+| `preparation_context_too_thin` | 422 | the submitted context holds too little to build an answer |
+| `preparation_invalid_request` | 422 | unknown or duplicate question, or a stale questionnaire version |
+| `preparation_generation_failed` | 500 | the guided preparation call failed |
+| `kickoff_generation_failed` | 500 | the kickoff call failed |
+| `unknown_use_case` | 404 | `use_case_id` is not in the catalog |
+
+Nothing internal appears in `detail`: not an upstream message, not a missing
+environment variable, not which question was malformed. Those go to the log.
+
+A failed body validation is the one case that carries a third field. FastAPI
+answers those with `detail` as an array of `{"msg": "Field required"}`, and the
+client reads the first `msg` — so a malformed request read as English. It now
+answers `invalid_request` like everything else, with the offending paths kept
+under `fields`:
+
+```json
+{
+  "detail": "La demande envoyée n'a pas pu être traitée. Mettez l'application à jour, puis réessayez.",
+  "code": "invalid_request",
+  "fields": ["body.input.meta.language"]
+}
+```
+
+The rate limiter is the only response outside this shape: `429` answers
+`{"error": "Rate limit exceeded: ..."}`, deliberately, since it is served to
+unauthenticated callers and says only that a limit was hit.
+
+The seven unused CRUD routers are not covered by any of this and still answer
+FastAPI's default `{"detail": ...}` in English.
+
+The catalog is [app/api/errors.py](../app/api/errors.py); every message lives in
+that one table.
+
 ## Health endpoint
 
 ### `GET /health`
@@ -295,46 +365,19 @@ Language behavior:
 
 Validation response `422`
 
-FastAPI validation errors are returned in the standard `detail` array format.
+A malformed body answers `invalid_request`; see
+[Error responses](#error-responses). A `meta.language` other than `fr` is
+rejected the same way, with `fields` reporting `body.input.meta.language`.
 
-Example:
+Backend error responses
 
-```json
-{
-  "detail": [
-    {
-      "msg": "Field required"
-    }
-  ]
-}
-```
+See [Error responses](#error-responses) for the shape. `/analyze` raises
+`service_unavailable`, `analysis_generation_failed`,
+`analysis_invalid_model_response` and `analysis_quality_insufficient`.
 
-Unsupported language example:
-
-```json
-{
-  "detail": [
-    {
-      "msg": "Value error, Only French output is currently supported for /analyze"
-    }
-  ]
-}
-```
-
-Backend error response `500`
-
-Possible current `detail` values include:
-
-- `OPENAI_API_KEY environment variable is missing`
-- `OpenAI API call failed: ...`
-- `OpenAI response did not contain content`
-- `Failed to parse model response as JSON: ...`
-- `Parsed model response is not a JSON object`
-- `Model response did not satisfy the analyze quality requirements`
-
-Model validation response `422`
-
-If the OpenAI response does not match the documented output schema, the backend returns a `422` validation error.
+Note that `analysis_invalid_model_response` is a `422` describing the *model's*
+answer, not the caller's request — the status code is a historical accident kept
+because 1.0 shipped against it.
 
 ## CV parsing endpoint
 
@@ -399,16 +442,20 @@ Response contract notes:
 - missing values may be returned as empty strings
 - the backend must not invent missing experiences
 
-Validation and error responses:
+Validation and error responses, all in the shape described under
+[Error responses](#error-responses):
 
-- `422` when the multipart body is malformed or the `file` field is missing
-- `415` when the uploaded file type is not supported
-- `413` when the uploaded file exceeds the maximum size
-- `422` when the PDF contains no extractable text
-- `422` when an image contains no extractable text
-- `422` when no exploitable professional experiences are found after PDF text extraction or image OCR
-- `500` when OCR dependencies or the OCR runtime are not available in the deployed backend
-- `500` when `X-CV-Parse-Test-Error: 500` is sent and `ENABLE_CV_PARSE_TEST_ERRORS=true` is enabled in a controlled local or staging environment
+- `415` `cv_unsupported_file_type` — the file is not a PDF, a JPEG or a PNG
+- `413` `cv_file_too_large` — the file exceeds the maximum size
+- `422` `cv_image_unreadable` / `cv_image_no_text` — the photo could not be decoded, or OCR found nothing
+- `422` `cv_pdf_unreadable` / `cv_pdf_no_text` — the PDF could not be opened, or carries no text
+- `422` `cv_no_experiences` — text was extracted, no experience row recognised
+- `500` `cv_ocr_unavailable` — the deployed service has no working OCR engine
+
+A malformed multipart body or a missing `file` field answers `422`
+`invalid_request`. One response carries no `code` at all:
+`X-CV-Parse-Test-Error: 500` with `ENABLE_CV_PARSE_TEST_ERRORS=true` answers a
+deliberate `500` used to exercise the client's error path outside production.
 
 Known limitations:
 
