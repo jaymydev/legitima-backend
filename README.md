@@ -1,97 +1,42 @@
-# Legitima Backend
+# Legitima — backend
 
-Backend initialisé (ultra safe) pour le produit **Legitima**.
+FastAPI service behind [Legitima](https://github.com/jaymydev/legitima-frontend),
+an iOS app that helps someone defend a non-linear career path in a job
+interview.
 
-## ✅ Ce que fournit ce squelette
-- FastAPI opérationnel avec un endpoint de santé.
-- Un endpoint transitoire `POST /analyze` pour le flux iOS onboarding -> analyse -> résultat.
-- Un endpoint déterministe `POST /cv/parse` pour extraire les expériences depuis un CV PDF textuel ou une image JPEG/PNG via OCR classique, sans appel OpenAI.
-- Structure modulaire alignée sur les concepts métiers.
-- Endpoints CRUD V1 pour les objets métiers (scopés par `user_id`).
-- Gestion d'erreurs centralisée (scaffold) + logging minimal.
-- Tests minimaux (scaffold).
+The product mechanism is **narrative → answers**. This service turns a few
+lines of career history into a strategic reading of it, names the objection an
+interviewer is likely to raise, and writes the answer the user can say out
+loud. Output is French only, by design and by validation.
 
-## 🔐 Authentification (V1)
-Supabase Auth est l’unique système d’authentification en V1.
+Python 3.11, deployed on Render at `https://legitima-backend.onrender.com`.
+The full request and response contract is in
+[docs/api-contract.md](docs/api-contract.md).
 
-- L’app iOS s’authentifie directement avec Supabase.
-- Le backend FastAPI fait confiance à Supabase pour l’identité.
-- Les requêtes peuvent inclure `Authorization: Bearer <supabase_jwt>`.
-- Le backend n’effectue **aucune** validation/décodage de JWT pour l’instant.
-- Les règles d’ownership et de contrôle d’accès seront ajoutées plus tard.
+## What it serves
 
-Variables d’environnement attendues (placeholders) :
-- `SUPABASE_URL`
-- `SUPABASE_ANON_KEY`
-- `X-User-Id` (header requis pour toutes les routes CRUD, transmis par le client)
+Five routes, and the iOS client calls all five:
 
-## 🚦 Limitation de débit
+| Route | Does | Limit |
+| --- | --- | --- |
+| `POST /analyze` | strategic reading of a career path | 10/hour |
+| `POST /v2/interview-preparation/kickoff` | one objection, one defensible answer | 10/hour |
+| `POST /v2/interview-preparation/analyze` | the guided preparation for one interview type | 10/hour |
+| `GET /v2/interview-preparation/use-cases` | the questionnaire catalog | 120/hour |
+| `POST /cv/parse` | experience extraction from a PDF or a photo | 20/hour |
 
-Les endpoints d'IA ne sont pas authentifiés. La seule chose qui sépare une
-boucle automatisée du compte OpenAI est la limitation par adresse IP :
+`/cv/parse` is deterministic: text extraction with `pypdf`, OCR with Tesseract,
+no model call and no token cost.
 
-- `POST /analyze`, `/v2/interview-preparation/analyze`, `/v2/interview-preparation/kickoff` : **10 / heure**
-- `POST /cv/parse` : **20 / heure**
-- toutes les autres routes : **120 / heure**
-- `GET /health` : jamais compté (Render l'interroge en continu)
+The seven CRUD routers — `/contexte`, `/parcours`, `/elements`, `/zones`,
+`/requalifications`, `/fil-conducteur`, `/reponses` — are **scaffold from an earlier
+design and are not used by anything**. They require a Supabase project that is
+not configured, so in production they answer `500 Supabase is not configured`.
+They are documented here as dead weight, not as API. Removing them, and the
+`X-User-Id` header they alone require, would be a fair cleanup.
 
-L'app iOS tenait autrefois un quota dans `UserDefaults`. Il ne protégeait rien
-— une réinstallation le remettait à zéro — et il a été retiré au passage en app
-gratuite. Ceci le remplace.
+## Running it
 
-L'adresse est lue **par la gauche** de `X-Forwarded-For`, c'est-à-dire au bout
-client de la chaîne.
-
-La première version lisait par la droite, en supposant que le bout droit était
-ce que notre propre proxy avait observé. Mesuré sur le service déployé, c'était
-faux : Render ajoute un intermédiaire dont l'adresse **change d'une requête à
-l'autre**, donc chaque appel ouvrait un seau neuf : le compteur renvoyé dans
-`X-RateLimit-Remaining` remontait au lieu de descendre. Depuis le correctif il
-décroît d'une unité par requête. Lire l'IP du socket
-serait tout aussi faux dans l'autre sens : tout le monde dans un seul seau,
-derrière le proxy, et l'app refuserait du trafic réel.
-
-Contrepartie assumée : quelqu'un qui forge l'entrée de gauche s'offre un quota
-neuf à chaque requête. Le filet contre ça n'est pas cette limite, c'est le
-plafond mensuel OpenAI. Le choix est entre une limite qui s'applique à tout le
-monde et une limite qui ne s'appliquait à personne.
-
-`SKIPPED_FORWARDED_ENTRIES` (défaut `0`) ignore autant d'entrées de tête, si un
-proxy à nous est un jour placé devant.
-
-Les compteurs vivent en mémoire, ce qui est correct pour une instance unique.
-Passer à plusieurs instances donnerait à chacune ses propres compteurs et
-multiplierait chaque limite d'autant : c'est le moment où il faudra Redis.
-
-**Ce n'est pas un plafond de dépense.** Le filet de sécurité reste la limite
-mensuelle à régler dans le tableau de bord OpenAI.
-
-## 🚫 Ce qui est intentionnellement NON implémenté (V1)
-- Aucune logique métier.
-- Aucune gestion d’authentification côté backend (pas de login/signup, pas de JWT).
-- Aucun contrôle d’accès avancé (seulement filtrage par `user_id`).
-
-Exception transitoire :
-- `POST /analyze` est supporté pour stabiliser le flux V1 frontend actuel, mais ce n’est pas le design cible long terme.
-
-## 📁 Arborescence (résumé)
-```
-legitima-backend/
-  app/
-    api/
-      health.py
-      routes/
-    auth/
-    config/
-    domain/
-    observability/
-    main.py
-  tests/
-  requirements.txt
-  README.md
-```
-
-## ▶️ Lancer localement
 ```bash
 python -m venv .venv
 source .venv/bin/activate
@@ -99,40 +44,117 @@ pip install -r requirements.txt
 uvicorn app.main:app --reload
 ```
 
-## ✅ Endpoint de santé
+`OPENAI_API_KEY` is required for anything that generates. `/cv/parse` and
+`/health` work without it. Image OCR additionally needs Tesseract on the host;
+the Dockerfile installs it, and
+[docs/cv-parse-ocr-deployment.md](docs/cv-parse-ocr-deployment.md) covers the
+deployment side.
+
+```bash
+.venv/bin/python -m pytest        # 68 tests, no network, no API key needed
 ```
-GET /health
-{"status": "ok"}
+
+There is no GitHub Actions workflow here, deliberately: the suite runs in
+thirteen seconds locally and CI minutes were the binding constraint on the iOS
+repository.
+
+## No authentication, and what stands in for it
+
+Anyone who extracts the base URL from the iOS binary can call this service.
+That is a deliberate trade — accounts were removed from the product — and it
+means the protections have to be real.
+
+**Per-IP rate limiting**, at the numbers in the table above. `GET /health` is
+never counted: Render polls it continuously, and counting it would exhaust the
+default bucket unaided and take the service down.
+
+Each route has its own counter, so a full preparation — analysis, kickoff,
+guided preparation — spends one call from three separate budgets. A request
+rejected by schema validation never reaches its handler, so only the 120/hour
+default counts it; testing a per-route limit needs a request the handler
+actually accepts.
+
+**The address is read from the leftmost `X-Forwarded-For` entry.** This is worth
+explaining, because the first version got it wrong in a way no test could catch.
+
+It read from the *right*, reasoning that a caller can only forge entries on the
+left and the right-hand end is what our own proxy observed. Render appends a hop
+whose address **changes between requests**, so every call opened a fresh bucket
+and the limit never fired. The anticipated failure was everyone collapsing into
+one bucket — loud, users hitting 429 immediately. The actual failure was the
+opposite and silent: counters fragment, nothing ever triggers, everything looks
+healthy. The tell was `X-RateLimit-Remaining` climbing back up between requests
+instead of descending. It now falls by one per call.
+
+The leftmost entry is the client, and it is stable. It is also forgeable: a
+caller who fakes it gets a fresh bucket per request. That weakness is real and
+deliberate — the alternative, measured, was a limit that applied to no one. The
+backstop against it is the monthly spend cap on the OpenAI account, not this
+module. `SKIPPED_FORWARDED_ENTRIES` (default `0`) skips leading entries should a
+proxy of our own ever be placed in front.
+
+Counters live in process memory, which is correct for one instance and wrong the
+moment there are two — each would keep its own and multiply every limit. That is
+the point at which this needs Redis.
+
+## Not leaking anything
+
+`/analyze` used to answer a failed upstream call with
+`detail=f"OpenAI API call failed: {exc}"`. OpenAI phrases a rejected credential
+as `Incorrect API key provided: sk-...`, and this endpoint takes no
+authentication — so it handed the key to whoever asked. An existing test
+asserted the interpolated string, which is how it survived: the bug was pinned
+in place by its own coverage.
+
+Error responses now carry no upstream text at all. Reasons go to the log.
+
+[tests/test_public_release_readiness.py](tests/test_public_release_readiness.py)
+keeps that closed, and is worth running before publishing anything:
+
+- every handler whose source constructs an OpenAI client must declare an
+  explicit limit, checked against the source rather than a maintained list, so
+  a new generating route cannot quietly inherit the 120/hour default;
+- a failing upstream call must not echo the key, and a malformed model reply
+  must not echo the reply;
+- the 429 body, served to unauthenticated callers by definition, says only that
+  a limit was hit;
+- no tracked file matches an OpenAI key, a JWT or an `api_key` assignment, and
+  no `.env` is tracked — run against `git ls-files`, which is what publishing
+  actually exposes;
+- the published limits match `docs/api-contract.md`, so the contract cannot
+  drift from the code.
+
+## Privacy
+
+Career history, sensitive periods and interview answers are personal data, and
+some of what a user writes may be health-related whatever the form invites.
+None of it is stored: requests are processed and answered, nothing is persisted.
+
+Logs record shape, never content — counts, durations, use-case identifiers,
+whether a field was filled. Two tests exist purely to assert that answers and
+context never reach the log. IP addresses are personal data too, so the
+forwarded-chain diagnostic logs the number of entries and never the addresses.
+
+What users write is sent to OpenAI, in the United States. The app says so on
+its first screen.
+
+## Layout
+
+```
+app/
+  api/
+    health.py            # exempt from rate limiting on purpose
+    rate_limit.py        # the key function is the interesting part
+    routes/              # analyze, cv, interview_preparation, + unused CRUD
+  services/
+    cv_parse.py          # pypdf + Tesseract, no model call
+    interview_preparation.py   # prompts, validation, use-case catalog
+  observability/         # logging and the catch-all error handler
+  main.py
+docs/
+tests/
 ```
 
-## 📘 Contrat d'API
-Le contrat d'API actuellement supporté par le backend est documenté dans [docs/api-contract.md](/Users/milehanalivecomm/Documents/Developer/legitima-backend/docs/api-contract.md).
-
-Ce document fait foi pour le V1 backend. Toute route non montée dans [app/main.py](/Users/milehanalivecomm/Documents/Developer/legitima-backend/app/main.py) et non documentée dans ce contrat doit être considérée comme non supportée par le frontend.
-
-Les scénarios contrôlés de validation d'erreurs pour `POST /cv/parse` sont documentés dans [docs/cv-parse-error-testing.md](/Users/milehanalivecomm/Documents/Developer/legitima-backend/docs/cv-parse-error-testing.md).
-
-Les prérequis de déploiement OCR pour les images JPEG/PNG sont documentés dans [docs/cv-parse-ocr-deployment.md](/Users/milehanalivecomm/Documents/Developer/legitima-backend/docs/cv-parse-ocr-deployment.md).
-
-## 🤖 Analyse V1 transitoire
-Le backend supporte aussi `POST /analyze` comme endpoint transitoire officiel pour le flux iOS actuel `onboarding -> analyse -> résultat`.
-
-- Il nécessite `OPENAI_API_KEY` côté backend.
-- Il supporte actuellement de manière fiable uniquement la sortie en français.
-- Son contrat exact est documenté dans [docs/api-contract.md](/Users/milehanalivecomm/Documents/Developer/legitima-backend/docs/api-contract.md).
-- Il est destiné à être remplacé plus tard par des endpoints métier plus explicites.
-
-## 📌 API (CRUD V1)
-Toutes les routes CRUD nécessitent le header `X-User-Id` et sont filtrées par `user_id`.
-
-Routes disponibles (POST/GET list/GET by id/PATCH/DELETE) :
-- `/contexte`
-- `/parcours`
-- `/elements`
-- `/zones`
-- `/requalifications`
-- `/fil-conducteur`
-- `/reponses`
-
-## ⚠️ Remarque
-Les routes métiers sont désormais disponibles en CRUD V1 et nécessitent `X-User-Id`.
+[AGENTS.md](AGENTS.md) holds the product boundaries: never invent experience or
+credentials, never promise hiring success, never hide a sensitive period, and
+keep endpoints small with business logic outside the handlers.
