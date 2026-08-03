@@ -9,7 +9,16 @@ lines of career history into a strategic reading of it, names the objection an
 interviewer is likely to raise, and writes the answer the user can say out
 loud. Output is French only, by design and by validation.
 
-Python 3.11, deployed on Render at `https://legitima-backend.onrender.com`.
+Python 3.11, deployed on Render **from the Dockerfile** at
+`https://legitima-backend-ocr.onrender.com`.
+
+The runtime is not a detail. `/cv/parse` drives the `tesseract` binary, which
+`pip` does not install — the Dockerfile does. A second Render service ran this
+same repository on the native Python runtime, answered every route identically,
+and returned `500 OCR engine is not available` the moment a real CV photo
+arrived. Render cannot change a service's runtime after creation. `GET /health`
+now reports whether OCR can actually run, so the question takes one call
+instead of a user complaint.
 The full request and response contract is in
 [docs/api-contract.md](docs/api-contract.md).
 
