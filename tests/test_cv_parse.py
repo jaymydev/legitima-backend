@@ -5,6 +5,7 @@ from PIL import Image
 import pytesseract
 
 from app.main import app
+from app.api import errors
 from app.api.routes import cv as cv_route
 from app.services import cv_parse as cv_parse_service
 
@@ -213,7 +214,7 @@ def test_cv_parse_rejects_image_without_extractable_text(monkeypatch) -> None:
     )
 
     assert response.status_code == 422
-    assert "No extractable text was found in the image" in response.json()["detail"]
+    assert response.json()["code"] == errors.CV_IMAGE_NO_TEXT
 
 
 def test_cv_parse_returns_500_when_ocr_engine_is_unavailable(monkeypatch) -> None:
@@ -228,7 +229,10 @@ def test_cv_parse_returns_500_when_ocr_engine_is_unavailable(monkeypatch) -> Non
     )
 
     assert response.status_code == 500
-    assert response.json() == {"detail": "OCR dependencies are not installed"}
+    assert response.json()["code"] == errors.CV_OCR_UNAVAILABLE
+    # Which of the two Render services answered is a deployment fact. It goes to
+    # the log; the caller is told to use a PDF instead.
+    assert "OCR dependencies" not in response.text
 
 
 def test_cv_parse_extracts_structured_experience_and_excludes_other_sections() -> None:
@@ -575,7 +579,7 @@ def test_cv_parse_rejects_pdf_without_extractable_text(monkeypatch) -> None:
     )
 
     assert response.status_code == 422
-    assert "text-based PDF" in response.json()["detail"]
+    assert response.json()["code"] == errors.CV_PDF_NO_TEXT
 
 
 def test_cv_parse_rejects_pdf_without_exploitable_experiences(monkeypatch) -> None:
@@ -591,7 +595,7 @@ def test_cv_parse_rejects_pdf_without_exploitable_experiences(monkeypatch) -> No
     )
 
     assert response.status_code == 422
-    assert "No exploitable professional experiences" in response.json()["detail"]
+    assert response.json()["code"] == errors.CV_NO_EXPERIENCES
 
 
 def test_cv_parse_rejects_oversized_files() -> None:

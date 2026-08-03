@@ -5,10 +5,19 @@
 
 import os
 
-from fastapi import APIRouter, HTTPException, Request, Response
+from fastapi import APIRouter, Request, Response
 from openai import OpenAI
 from pydantic import BaseModel
 
+from app.api.errors import (
+    KICKOFF_GENERATION_FAILED,
+    PREPARATION_CONTEXT_TOO_THIN,
+    PREPARATION_GENERATION_FAILED,
+    PREPARATION_INVALID_REQUEST,
+    SERVICE_UNAVAILABLE,
+    UNKNOWN_USE_CASE,
+    user_facing_error,
+)
 from app.api.rate_limit import AI_GENERATION_LIMIT, limiter
 from app.observability.logging import logger
 from app.services.interview_preparation import (
@@ -50,15 +59,12 @@ def kickoff_premium_preparation(
     objection, one defensible answer, from the lean context alone.
     """
     if not has_usable_context(payload.context):
-        raise HTTPException(
-            status_code=422,
-            detail="Context does not contain enough material to build an answer",
-        )
+        raise user_facing_error(PREPARATION_CONTEXT_TOO_THIN)
 
     api_key = os.environ.get("OPENAI_API_KEY")
     if not api_key:
         logger.warning("Premium kickoff rejected reason=missing_openai_api_key")
-        raise HTTPException(status_code=500, detail="OPENAI_API_KEY environment variable is missing")
+        raise user_facing_error(SERVICE_UNAVAILABLE)
 
     logger.info(
         "Premium kickoff started has_sensitive_point=%s has_freemium_analysis=%s",
@@ -72,7 +78,7 @@ def kickoff_premium_preparation(
         kickoff = generate_kickoff(OpenAI(api_key=api_key), payload.context)
     except Exception as exc:
         logger.exception("Premium kickoff failed")
-        raise HTTPException(status_code=500, detail="Premium kickoff generation failed") from exc
+        raise user_facing_error(KICKOFF_GENERATION_FAILED) from exc
 
     logger.info("Premium kickoff completed")
     return kickoff
@@ -87,12 +93,20 @@ def analyze_interview_preparation(
 ) -> InterviewPreparationResponse:
     definition = get_use_case(payload.use_case_id)
     if definition is None:
-        raise HTTPException(status_code=404, detail="Unknown interview use case")
+        raise user_facing_error(UNKNOWN_USE_CASE)
 
     try:
         answers = validate_request(payload, definition)
     except ValueError as exc:
-        raise HTTPException(status_code=422, detail=str(exc)) from exc
+        # These say things like "Duplicate question_id: x" — a client-contract
+        # violation, phrased for whoever wrote the client. The person waiting on
+        # the screen can do nothing with it, so it stays in the log.
+        logger.warning(
+            "Interview preparation rejected use_case_id=%s reason=%s",
+            payload.use_case_id,
+            exc,
+        )
+        raise user_facing_error(PREPARATION_INVALID_REQUEST) from exc
 
     api_key = os.environ.get("OPENAI_API_KEY")
     if not api_key:
@@ -100,7 +114,7 @@ def analyze_interview_preparation(
             "Interview preparation rejected reason=missing_openai_api_key use_case_id=%s",
             payload.use_case_id,
         )
-        raise HTTPException(status_code=500, detail="OPENAI_API_KEY environment variable is missing")
+        raise user_facing_error(SERVICE_UNAVAILABLE)
 
     logger.info(
         "Interview preparation started use_case_id=%s questionnaire_version=%s answer_count=%s",
@@ -122,7 +136,7 @@ def analyze_interview_preparation(
             payload.use_case_id,
             payload.questionnaire_version,
         )
-        raise HTTPException(status_code=500, detail="Interview preparation generation failed") from exc
+        raise user_facing_error(PREPARATION_GENERATION_FAILED) from exc
 
     logger.info(
         "Interview preparation completed use_case_id=%s section_count=%s",

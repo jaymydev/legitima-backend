@@ -133,6 +133,45 @@ keeps that closed, and is worth running before publishing anything:
 - the published limits match `docs/api-contract.md`, so the contract cannot
   drift from the code.
 
+## What an error says, and to whom
+
+The app is French-only, and it prints a failed request's `detail` in red,
+unchanged, to someone who is about to walk into an interview. For a while that
+meant they read *"No exploitable professional experiences were found in this
+document"* — English, and phrased about the document rather than about what to
+do next.
+
+Every error the five client-facing routes can return now comes from one table,
+[app/api/errors.py](app/api/errors.py), and carries two fields:
+
+```json
+{ "detail": "Aucun texte n'a pu être extrait de ce PDF. C'est probablement un scan : importez-le comme photo, ou utilisez un PDF au format texte.", "code": "cv_pdf_no_text" }
+```
+
+`detail` is the sentence, and it is copy — it can be reworded. `code` is the
+contract, and it cannot. Keeping both means the wording stays reviewable in one
+place while a client that wants its own phrasing has something stable to branch
+on, and it kept the change backward compatible: `detail` is still a plain string
+in its usual position, so the shipped app benefits without being rebuilt.
+
+Nothing internal goes in `detail`. `OCR dependencies are not installed` names
+which of the two Render services answered, and `Duplicate question_id: x` is
+addressed to whoever wrote the client — neither helps the person reading it, so
+both stay in the log.
+
+FastAPI's own body validation went the same way. It answers `detail` as an
+array of `{"msg": "Field required"}` and the client reads the first `msg`, so a
+client bug read as English — and this repository has already shipped one of
+those: re-adding `from __future__ import annotations` to the interview
+preparation router downgrades its body to a query parameter and answers every
+POST with exactly that. The field paths moved to a `fields` key, where they
+still serve whoever is debugging the client.
+
+[tests/test_user_facing_errors.py](tests/test_user_facing_errors.py) reads the
+source of the three modules those routes go through and fails on a bare
+`raise HTTPException(...)`. Asserting the messages in the table would have
+proved nothing about the next one someone adds.
+
 ## Privacy
 
 Career history, sensitive periods and interview answers are personal data, and
@@ -152,6 +191,7 @@ its first screen.
 ```
 app/
   api/
+    errors.py            # every user-facing message, in French, in one table
     health.py            # exempt from rate limiting on purpose
     rate_limit.py        # the key function is the interesting part
     routes/              # analyze, cv, interview_preparation, + unused CRUD

@@ -3,6 +3,7 @@ from slowapi import _rate_limit_exceeded_handler
 from slowapi.errors import RateLimitExceeded
 from slowapi.middleware import SlowAPIMiddleware
 
+from app.api.errors import register_user_facing_error_handler
 from app.api.health import router as health_router
 from app.api.rate_limit import limiter
 from app.api.routes.analyze import router as analyze_router
@@ -46,6 +47,7 @@ def create_app() -> FastAPI:
     )
     app.include_router(reponses_router, prefix="/reponses", tags=["ReponseEntretien"])
 
+    register_user_facing_error_handler(app)
     register_exception_handlers(app)
 
     @app.on_event("startup")

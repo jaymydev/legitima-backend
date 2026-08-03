@@ -4,10 +4,17 @@ import re
 import unicodedata
 from typing import Iterable
 
-from fastapi import APIRouter, HTTPException, Request, Response
+from fastapi import APIRouter, Request, Response
 from openai import OpenAI
 from pydantic import BaseModel, ConfigDict, ValidationError, field_validator
 
+from app.api.errors import (
+    ANALYSIS_GENERATION_FAILED,
+    ANALYSIS_INVALID_MODEL_RESPONSE,
+    ANALYSIS_QUALITY_INSUFFICIENT,
+    SERVICE_UNAVAILABLE,
+    user_facing_error,
+)
 from app.api.rate_limit import AI_GENERATION_LIMIT, limiter
 from app.observability.logging import logger
 
@@ -276,17 +283,23 @@ def _parse_analysis_response(content: str) -> AnalyzeResponseV1:
         # The reason stays in the log. A decode error quotes the surrounding
         # text, and that text is the model's reading of someone's career.
         logger.warning("Analyze parse failure reason=invalid_json")
-        raise HTTPException(status_code=500, detail="Failed to parse model response as JSON") from exc
+        raise user_facing_error(ANALYSIS_GENERATION_FAILED) from exc
 
     if not isinstance(parsed, dict):
         logger.warning("Analyze parse failure reason=not_json_object")
-        raise HTTPException(status_code=500, detail="Parsed model response is not a JSON object")
+        raise user_facing_error(ANALYSIS_GENERATION_FAILED)
 
     try:
         return AnalyzeResponseV1.model_validate(parsed)
     except ValidationError as exc:
-        logger.warning("Analyze validation failure reason=invalid_response_schema")
-        raise HTTPException(status_code=422, detail=exc.errors()) from exc
+        # `exc.errors()` used to be the response body. Pydantic phrases those in
+        # English, about fields the caller never sent — they describe the
+        # model's answer, not the request.
+        logger.warning(
+            "Analyze validation failure reason=invalid_response_schema error_count=%d",
+            len(exc.errors()),
+        )
+        raise user_facing_error(ANALYSIS_INVALID_MODEL_RESPONSE) from exc
 
 
 def _iter_response_strings(response: AnalyzeResponseV1) -> Iterable[str]:
@@ -377,7 +390,7 @@ def _generate_analysis(
         # "Incorrect API key provided: sk-...", and this endpoint takes no
         # authentication, so interpolating it published the key to anyone who
         # asked. `logger.exception` above keeps the detail where it belongs.
-        raise HTTPException(status_code=500, detail="OpenAI API call failed") from exc
+        raise user_facing_error(ANALYSIS_GENERATION_FAILED) from exc
 
     content = completion.choices[0].message.content if completion.choices else None
     if not content:
@@ -388,7 +401,7 @@ def _generate_analysis(
             payload.meta.target_market,
             payload.meta.interview_type,
         )
-        raise HTTPException(status_code=500, detail="OpenAI response did not contain content")
+        raise user_facing_error(ANALYSIS_GENERATION_FAILED)
 
     return _parse_analysis_response(content)
 
@@ -401,7 +414,7 @@ def analyze(request: Request, response: Response, payload: AnalyzeRequest) -> An
     api_key = os.environ.get("OPENAI_API_KEY")
     if not api_key:
         logger.warning("Analyze rejected reason=missing_openai_api_key")
-        raise HTTPException(status_code=500, detail="OPENAI_API_KEY environment variable is missing")
+        raise user_facing_error(SERVICE_UNAVAILABLE)
 
     logger.info(
         "Analyze request started language=%s target_market=%s interview_type=%s model=%s",
@@ -424,7 +437,4 @@ def analyze(request: Request, response: Response, payload: AnalyzeRequest) -> An
         return retry_response
 
     logger.error("Analyze response failed quality validation attempt=retry_french")
-    raise HTTPException(
-        status_code=500,
-        detail="Model response did not satisfy the analyze quality requirements",
-    )
+    raise user_facing_error(ANALYSIS_QUALITY_INSUFFICIENT)

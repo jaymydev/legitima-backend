@@ -3,6 +3,7 @@ from types import SimpleNamespace
 
 from fastapi.testclient import TestClient
 
+from app.api import errors
 from app.main import app
 from app.api.routes import analyze as analyze_route
 
@@ -34,7 +35,9 @@ def test_analyze_accepts_current_ios_payload_shape() -> None:
 
     response = client.post("/analyze", json=payload)
     assert response.status_code == 500
-    assert response.json() == {"detail": "OPENAI_API_KEY environment variable is missing"}
+    # The code is the contract; the sentence is French copy that may be reworded.
+    assert response.json()["code"] == errors.SERVICE_UNAVAILABLE
+    assert "OPENAI_API_KEY" not in response.text
 
 
 def test_analyze_rejects_unsupported_language() -> None:
@@ -57,7 +60,10 @@ def test_analyze_rejects_unsupported_language() -> None:
 
     response = client.post("/analyze", json=payload)
     assert response.status_code == 422
-    assert "Only French output is currently supported for /analyze" in json.dumps(response.json())
+    assert response.json()["code"] == errors.INVALID_REQUEST
+    # The reason is a client-contract detail, so it names the field rather than
+    # putting an English sentence in front of a French-speaking user.
+    assert response.json()["fields"] == ["body.input.meta.language"]
 
 
 def test_analyze_retries_when_first_response_is_not_french(monkeypatch) -> None:
@@ -187,7 +193,7 @@ def test_analyze_returns_error_when_openai_call_fails(monkeypatch) -> None:
     # interpolation in place — and OpenAI phrases a bad credential as
     # "Incorrect API key provided: sk-...", so the endpoint handed the key to
     # any caller. The reason lives in the log now.
-    assert response.json()["detail"] == "OpenAI API call failed"
+    assert response.json()["code"] == errors.ANALYSIS_GENERATION_FAILED
     assert "upstream unavailable" not in response.text
 
 
@@ -252,9 +258,7 @@ def test_analyze_returns_error_when_french_requirement_still_fails_after_retry(m
     response = client.post("/analyze", json=payload)
 
     assert response.status_code == 500
-    assert response.json() == {
-        "detail": "Model response did not satisfy the analyze quality requirements"
-    }
+    assert response.json()["code"] == errors.ANALYSIS_QUALITY_INSUFFICIENT
     assert fake_client.calls == 2
 
 
