@@ -219,6 +219,33 @@ def _extract_text_from_pdf(file_bytes: bytes) -> str:
     return "\n".join(page.extract_text() or "" for page in reader.pages).strip()
 
 
+def ocr_availability() -> dict[str, Any]:
+    """Whether this machine can actually read a CV photo.
+
+    The Python packages install anywhere; the `tesseract` binary they drive
+    does not. A Render service on the native Python runtime has the packages
+    and not the binary, so `/cv/parse` accepts a PDF and answers 500 on an
+    image. Both services looked identical from the outside — same routes, same
+    responses to a malformed request — and the difference only showed when a
+    real photo arrived. This makes it answerable with one call to /health.
+    """
+    try:
+        import pytesseract
+    except ImportError:
+        return {"available": False, "reason": "pytesseract is not installed"}
+
+    try:
+        version = str(pytesseract.get_tesseract_version())
+    except Exception as exc:  # the binary is missing or not on PATH
+        return {"available": False, "reason": type(exc).__name__}
+
+    return {
+        "available": True,
+        "engine_version": version,
+        "languages": os.getenv("CV_PARSE_OCR_LANG", "fra+eng"),
+    }
+
+
 def _extract_text_from_image(file_bytes: bytes) -> str:
     try:
         from PIL import Image, ImageOps, ImageStat
