@@ -1,4 +1,0 @@
-- [User role](user_profile.md) — Lead iOS + backend dev, values clarity and understanding before action
-- [Workflow rules](feedback_workflow.md) — Strict rules: 1 PR = 1 commit, new branch per task, never modify /analyze without validation
-- [Project state](project_state.md) — CV parse working with OCR français, interview prep routes added, premium flow stable
-- [Tech patterns](reference_tech.md) — API endpoints, CV parsing OCR, interview prep routes, gotchas (/analyze restricted, test_payload.json)
