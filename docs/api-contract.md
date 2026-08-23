@@ -47,6 +47,7 @@ monthly spend cap on the OpenAI account, not this limit.
 | `POST /analyze` | 10 / hour |
 | `POST /v2/interview-preparation/analyze` | 10 / hour |
 | `POST /v2/interview-preparation/kickoff` | 10 / hour |
+| `POST /v3/interview/questions` | 10 / hour |
 | `POST /cv/parse` | 20 / hour |
 | every other route | 120 / hour |
 | `GET /health` | not counted |
@@ -156,6 +157,60 @@ Response `200`
   "status": "ok"
 }
 ```
+
+## Interview questions V3
+
+The pivot. The interview type carries the preparation; the career path is
+optional material rather than the subject. No analysis runs first.
+
+### `GET /v3/interview/use-cases`
+
+Six types, questionnaire version `2.0`. There is no "not sure yet" entry: someone
+who cannot name their interview is not who this is for.
+
+### `POST /v3/interview/questions`
+
+Rate limited to 10/hour — it spends tokens.
+
+```json
+{
+  "use_case_id": "internal_mobility",
+  "questionnaire_version": "2.0",
+  "answers": [{"question_id": "current_role", "answer": "Cheffe de projet"}],
+  "experiences": [{"title": "", "company": "", "period": ""}]
+}
+```
+
+`answers` and `experiences` may both be empty. A performance review needs neither,
+and still returns a usable page — that is the property the pivot exists for, and
+`tests/test_interview_questions.py` asserts it.
+
+`experiences` is read by two use cases only, and differently: a recruitment may
+use the whole list, an internal move only the **last three roles**. Every other
+type ignores it entirely — the manager already knows the person's history, so
+replaying it is noise.
+
+Response:
+
+```json
+{
+  "use_case_id": "internal_mobility",
+  "title": "",
+  "questions": [{"question": "", "intent": "", "answer": ""}],
+  "action_plan": [""]
+}
+```
+
+Between 5 and 8 questions, most likely first. `intent` says in one sentence what
+the interviewer is checking, so the reader can improvise when the question comes
+out differently. Answers are capped at 420 characters **in code**, cut at a
+sentence boundary — asking the model for brevity works most of the time, and the
+page has to hold every time. The whole thing is meant to be read in five minutes,
+in the corridor.
+
+Errors follow the shape under [Error responses](#error-responses):
+`unknown_use_case`, `preparation_invalid_request`, `service_unavailable`,
+`preparation_generation_failed`.
 
 ## Interview preparation V2
 

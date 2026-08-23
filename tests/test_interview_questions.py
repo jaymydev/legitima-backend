@@ -1,0 +1,224 @@
+"""The pivot's contract: the interview type carries the preparation.
+
+The property worth protecting is that a useful page exists even when the person
+supplies almost nothing. The old flow refused to start without a career path;
+this one must not acquire the same reflex by accident.
+"""
+
+import json
+from types import SimpleNamespace
+
+import pytest
+from fastapi.testclient import TestClient
+
+from app.api import errors
+from app.api.routes import interview_questions as route
+from app.main import app
+from app.services import interview_questions as service
+
+client = TestClient(app)
+
+VALID_RESPONSE = {
+    "use_case_id": "performance_review",
+    "title": "Votre entretien de performance",
+    "questions": [
+        {
+            "question": f"Question {index} ?",
+            "intent": "Ce que votre interlocuteur cherche.",
+            "answer": "Nommez le projet concerné, puis le résultat obtenu.",
+        }
+        for index in range(service.MIN_QUESTIONS)
+    ],
+    "action_plan": ["Relire vos chiffres."],
+}
+
+
+def _fake_openai(payload: dict):
+    class FakeOpenAI:
+        def __init__(self, *args, **kwargs) -> None:
+            self.chat = self
+
+        @property
+        def completions(self):
+            return self
+
+        def create(self, *args, **kwargs):
+            return SimpleNamespace(
+                choices=[
+                    SimpleNamespace(
+                        message=SimpleNamespace(content=json.dumps(payload, ensure_ascii=False))
+                    )
+                ]
+            )
+
+    return FakeOpenAI
+
+
+def test_the_catalog_lists_six_types_without_an_unsure_option() -> None:
+    response = client.get("/v3/interview/use-cases")
+
+    assert response.status_code == 200
+    use_cases = response.json()["use_cases"]
+    assert [case["id"] for case in use_cases] == [
+        "recruitment",
+        "internal_mobility",
+        "role_evolution",
+        "annual_review",
+        "mid_year",
+        "performance_review",
+    ]
+    # "Je ne sais pas encore" is gone on purpose: someone who cannot name their
+    # interview is not who this is for.
+    assert all(case["questionnaire_version"] == service.QUESTIONS_VERSION for case in use_cases)
+
+
+def test_a_performance_review_needs_no_answer_at_all(monkeypatch) -> None:
+    """The pivot's core promise, asserted rather than assumed.
+
+    The previous flow answered 422 without a career path. This one must produce
+    a page from the interview type alone.
+    """
+    monkeypatch.setenv("OPENAI_API_KEY", "test-key")
+    monkeypatch.setattr(route, "OpenAI", _fake_openai(VALID_RESPONSE))
+
+    response = client.post(
+        "/v3/interview/questions",
+        json={
+            "use_case_id": "performance_review",
+            "questionnaire_version": service.QUESTIONS_VERSION,
+        },
+        headers={"X-Forwarded-For": "198.51.100.61"},
+    )
+
+    assert response.status_code == 200
+    assert len(response.json()["questions"]) >= service.MIN_QUESTIONS
+
+
+def test_a_recruitment_still_needs_the_job_offer(monkeypatch) -> None:
+    monkeypatch.setenv("OPENAI_API_KEY", "test-key")
+
+    response = client.post(
+        "/v3/interview/questions",
+        json={
+            "use_case_id": "recruitment",
+            "questionnaire_version": service.QUESTIONS_VERSION,
+        },
+        headers={"X-Forwarded-For": "198.51.100.62"},
+    )
+
+    assert response.status_code == 422
+    assert response.json()["code"] == errors.PREPARATION_INVALID_REQUEST
+    assert "job_offer" not in response.text
+
+
+def test_an_unknown_type_is_refused() -> None:
+    response = client.post(
+        "/v3/interview/questions",
+        json={"use_case_id": "coffee_chat", "questionnaire_version": service.QUESTIONS_VERSION},
+        headers={"X-Forwarded-For": "198.51.100.63"},
+    )
+
+    assert response.status_code == 404
+    assert response.json()["code"] == errors.UNKNOWN_USE_CASE
+
+
+def test_a_stale_questionnaire_is_refused() -> None:
+    response = client.post(
+        "/v3/interview/questions",
+        json={"use_case_id": "performance_review", "questionnaire_version": "0.9"},
+        headers={"X-Forwarded-For": "198.51.100.64"},
+    )
+
+    assert response.status_code == 422
+    assert response.json()["code"] == errors.PREPARATION_INVALID_REQUEST
+
+
+def test_a_missing_key_never_names_the_variable(monkeypatch) -> None:
+    monkeypatch.delenv("OPENAI_API_KEY", raising=False)
+
+    response = client.post(
+        "/v3/interview/questions",
+        json={"use_case_id": "performance_review", "questionnaire_version": service.QUESTIONS_VERSION},
+        headers={"X-Forwarded-For": "198.51.100.65"},
+    )
+
+    assert response.status_code == 500
+    assert response.json()["code"] == errors.SERVICE_UNAVAILABLE
+    assert "OPENAI_API_KEY" not in response.text
+
+
+EXPERIENCES = [
+    service.CVExperience(title=f"Poste {index}", company=f"Société {index}", period=f"20{10 + index}")
+    for index in range(6)
+]
+
+
+def test_only_an_internal_move_reads_the_career_and_only_three_roles() -> None:
+    """The one place the CV is allowed in, and how far.
+
+    Sending experiences with an annual review must change nothing: the manager
+    already knows the person's history, so replaying it is noise at best.
+    """
+    mobility = service.build_prompt(
+        service.USE_CASES["internal_mobility"], {}, EXPERIENCES
+    )
+    assert "Poste 0" in mobility and "Poste 2" in mobility
+    assert "Poste 3" not in mobility, "only the last three roles belong in an internal move"
+
+    annual = service.build_prompt(service.USE_CASES["annual_review"], {}, EXPERIENCES)
+    assert "Poste 0" not in annual
+
+
+def test_a_recruitment_may_use_the_whole_cv() -> None:
+    prompt = service.build_prompt(service.USE_CASES["recruitment"], {"job_offer": "x"}, EXPERIENCES)
+
+    assert "Poste 5" in prompt
+
+
+@pytest.mark.parametrize("use_case_id", sorted(service.USE_CASES))
+def test_every_prompt_forbids_inventing_facts(use_case_id: str) -> None:
+    """With less input, the model has more room to invent — so the rule matters
+    more here than it did before, not less."""
+    prompt = service.build_prompt(service.USE_CASES[use_case_id], {}, [])
+
+    assert "N'invente aucun fait" in prompt
+    assert "STRUCTURE" in prompt
+
+
+def test_an_over_long_answer_is_cut_at_a_sentence_boundary() -> None:
+    sentences = "Première phrase. " + "Phrase de remplissage assez longue. " * 30
+    trimmed = service.trim_to_budget(sentences, max_characters=120)
+
+    assert len(trimmed) <= 120
+    assert trimmed.endswith(".")
+    assert "Première phrase." in trimmed
+
+
+def test_a_single_long_sentence_is_kept_whole() -> None:
+    """Half a sentence is worse than a long one when it has to be said aloud."""
+    sentence = "Une seule phrase très longue qui dépasse largement le budget fixé pour la page."
+    trimmed = service.trim_to_budget(sentence, max_characters=20)
+
+    assert trimmed == sentence
+
+
+def test_the_page_is_bounded_by_the_code_not_by_the_prompt(monkeypatch) -> None:
+    """Asking the model for brevity works most of the time; the page has to hold
+    every time."""
+    verbose = dict(VALID_RESPONSE)
+    verbose["questions"] = [
+        {**question, "answer": "Phrase interminable et redondante. " * 40}
+        for question in VALID_RESPONSE["questions"]
+    ]
+    monkeypatch.setenv("OPENAI_API_KEY", "test-key")
+    monkeypatch.setattr(route, "OpenAI", _fake_openai(verbose))
+
+    response = client.post(
+        "/v3/interview/questions",
+        json={"use_case_id": "performance_review", "questionnaire_version": service.QUESTIONS_VERSION},
+        headers={"X-Forwarded-For": "198.51.100.66"},
+    )
+
+    assert response.status_code == 200
+    for question in response.json()["questions"]:
+        assert len(question["answer"]) <= service.MAX_ANSWER_CHARACTERS
