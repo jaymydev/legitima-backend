@@ -1,5 +1,7 @@
 import io
 
+import pytest
+
 from fastapi.testclient import TestClient
 from PIL import Image
 import pytesseract
@@ -258,6 +260,129 @@ def test_cv_parse_extracts_structured_experience_and_excludes_other_sections() -
             {"title": "Développeur logiciel", "company": "THALES ALENIA SPACE", "period": "2022 à 2023"},
         ]
     }
+
+
+def test_cv_parse_reads_the_singular_french_experience_heading() -> None:
+    """`EXPÉRIENCE PROFESSIONNELLE` is ordinary French, and used to yield nothing.
+
+    The heading test was four exact strings, and the singular was not one of
+    them. A CV headed this way produced no section, so no experiences, so a 422
+    telling its owner their own CV was unreadable.
+    """
+    result = cv_parse_service.parse_cv_text(
+        """
+        Marie Dupont
+        EXPÉRIENCE PROFESSIONNELLE
+        Cheffe de projet - Capgemini
+        janvier 2021 - aujourd'hui
+        Consultante - AIRBUS
+        mars 2018 - décembre 2020
+        FORMATION
+        Master informatique, 2014 - 2018
+        """
+    )
+
+    assert result.model_dump() == {
+        "experiences": [
+            {"title": "Cheffe de projet", "company": "Capgemini", "period": "janvier 2021 - aujourd'hui"},
+            {"title": "Consultante", "company": "AIRBUS", "period": "mars 2018 - décembre 2020"},
+        ]
+    }
+
+
+def test_cv_parse_reads_an_english_cv() -> None:
+    """The layout App Review rejected build 31 for.
+
+    An English demo CV is headed `WORK EXPERIENCE`, which matched no heading, and
+    dates it as `Mar 2018 - Dec 2020`, where `dec` matched the French
+    abbreviation and `mar` matched nothing — so the period began late and
+    swallowed the job title. The app is French; a CV handed to it need not be.
+    """
+    result = cv_parse_service.parse_cv_text(
+        """
+        John Appleseed
+        SUMMARY
+        Product leader with 8 years of experience.
+        WORK EXPERIENCE
+        Senior Product Manager - Acme Corp
+        Jan 2021 - Present
+        Product Manager - Globex
+        Mar 2018 - Dec 2020
+        Business Analyst - Initech
+        Feb 2016 - Feb 2018
+        EDUCATION
+        BSc Computer Science, Stanford, 2014 - 2018
+        """
+    )
+
+    assert result.model_dump() == {
+        "experiences": [
+            {"title": "Senior Product Manager", "company": "Acme Corp", "period": "Jan 2021 - Present"},
+            {"title": "Product Manager", "company": "Globex", "period": "Mar 2018 - Dec 2020"},
+            {"title": "Business Analyst", "company": "Initech", "period": "Feb 2016 - Feb 2018"},
+        ]
+    }
+
+
+@pytest.mark.parametrize(
+    "heading",
+    [
+        "EXPÉRIENCES PROFESSIONNELLES",
+        "EXPÉRIENCE PROFESSIONNELLE",
+        "EXPERIENCES",
+        "MES EXPÉRIENCES",
+        "PARCOURS PROFESSIONNEL",
+        "WORK EXPERIENCE",
+        "PROFESSIONAL EXPERIENCE",
+        "EMPLOYMENT HISTORY",
+        "CAREER HISTORY",
+    ],
+)
+def test_cv_parse_accepts_the_ways_a_cv_names_its_experience_section(heading: str) -> None:
+    result = cv_parse_service.parse_cv_text(
+        f"""
+        {heading}
+        Cheffe de projet - Capgemini
+        janvier 2021 - aujourd'hui
+        """
+    )
+
+    assert [experience.company for experience in result.experiences] == ["Capgemini"]
+
+
+@pytest.mark.parametrize(
+    "line",
+    [
+        # Loosening the heading test must not turn prose into a section break.
+        "Product leader with 8 years of experience.",
+        "Experience in Python and Django",
+        "Experience Designer",
+        "Senior Product Manager - Acme Corp",
+    ],
+)
+def test_cv_parse_does_not_mistake_a_sentence_for_a_section_heading(line: str) -> None:
+    assert not cv_parse_service._is_experience_heading(line)
+
+
+def test_cv_parse_sorts_english_periods_by_date() -> None:
+    """Month recognition also feeds the ordering, so it is asserted separately."""
+    result = cv_parse_service.parse_cv_text(
+        """
+        WORK EXPERIENCE
+        Analyst - Initech
+        Feb 2016 - Feb 2018
+        Director - Acme Corp
+        Aug 2021 - May 2024
+        Manager - Globex
+        Jun 2018 - Jul 2021
+        """
+    )
+
+    assert [experience.company for experience in result.experiences] == [
+        "Acme Corp",
+        "Globex",
+        "Initech",
+    ]
 
 
 def test_cv_parse_supports_company_title_period_on_one_line() -> None:

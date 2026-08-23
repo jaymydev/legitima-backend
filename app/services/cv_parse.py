@@ -42,10 +42,19 @@ CV_PARSE_MAX_RETURNED_EXPERIENCES = 5
 ENABLE_CV_PARSE_TEST_ERRORS_ENV = "ENABLE_CV_PARSE_TEST_ERRORS"
 CV_PARSE_TEST_ERROR_500 = "500"
 
-_MONTH_RE = (
+_FRENCH_MONTH_RE = (
     r"janvier|janv?\.?|f[eé]vrier|f[eé]vr?\.?|mars|avril|avr\.?|mai|juin|"
     r"juillet|juil?\.?|ao[uû]t|septembre|sept?\.?|octobre|oct\.?|novembre|nov\.?|d[eé]cembre|d[eé]c\.?"
 )
+# `Mar 2018 - Dec 2020` used to yield an experience titled "Mar": `dec` matched
+# the French abbreviation, `mar` matched nothing, so the period started late and
+# swallowed the job title. The app is French, but a CV in it need not be.
+# Longest form first in each pair, or `march` would never be reached past `mar`.
+_ENGLISH_MONTH_RE = (
+    r"january|jan\.?|february|feb\.?|march|mar\.?|april|apr\.?|may|june|jun\.?|"
+    r"july|jul\.?|august|aug\.?|september|sep\.?|october|november|december"
+)
+_MONTH_RE = f"{_FRENCH_MONTH_RE}|{_ENGLISH_MONTH_RE}"
 _PERIOD_RE = re.compile(
     r"(?ix)"
     r"(?:"
@@ -98,7 +107,57 @@ _MONTH_VALUES = {
     "nov": 11,
     "decembre": 12,
     "dec": 12,
+    # English, so a period like `Mar 2018 - Dec 2020` still sorts by date.
+    # `sept`, `oct`, `nov` and `dec` above already serve both languages.
+    "january": 1,
+    "jan": 1,
+    "february": 2,
+    "feb": 2,
+    "march": 3,
+    "mar": 3,
+    "april": 4,
+    "apr": 4,
+    "may": 5,
+    "june": 6,
+    "jun": 6,
+    "july": 7,
+    "jul": 7,
+    "august": 8,
+    "aug": 8,
+    "september": 9,
+    "sep": 9,
+    "october": 10,
+    "november": 11,
+    "december": 12,
 }
+
+
+#: Words that, on their own, name a career section.
+_EXPERIENCE_HEADING_NOUNS = {
+    "experience",
+    "experiences",
+    "parcours",
+    "emploi",
+    "emplois",
+    "employment",
+    "career",
+}
+#: Words allowed to sit beside one, in French or in English.
+_EXPERIENCE_HEADING_QUALIFIERS = {
+    "and",
+    "et",
+    "history",
+    "mes",
+    "my",
+    "pro",
+    "professional",
+    "professionnel",
+    "professionnelle",
+    "professionnelles",
+    "professionnels",
+    "work",
+}
+_MAX_EXPERIENCE_HEADING_WORDS = 4
 
 
 class CVExperience(BaseModel):
@@ -438,8 +497,28 @@ def _heading_key(line: str) -> str:
 
 
 def _is_experience_heading(line: str) -> bool:
-    key = _heading_key(line).replace(" ", "")
-    return key in {"experiences", "experience", "experiencesprofessionnelles", "parcoursprofessionnel"}
+    """Whether this line opens the experience section.
+
+    This used to be four exact keys, and everything else fell through: a CV
+    headed `EXPÉRIENCE PROFESSIONNELLE` — the singular, which is ordinary
+    French — produced no section, so no experiences, so a 422 telling its owner
+    the document was unreadable. App Review hit the English form of the same
+    hole and rejected the build for it.
+
+    Matching whole words instead of the joined string keeps that from happening
+    again for a spelling nobody listed. A heading is short, contains one of the
+    words that name a career, and contains nothing else — so `Experience in
+    Python and Django`, a skills line, is still not a heading.
+    """
+    words = _heading_key(line).split()
+    if not words or len(words) > _MAX_EXPERIENCE_HEADING_WORDS:
+        return False
+    if not any(word in _EXPERIENCE_HEADING_NOUNS for word in words):
+        return False
+    return all(
+        word in _EXPERIENCE_HEADING_NOUNS or word in _EXPERIENCE_HEADING_QUALIFIERS
+        for word in words
+    )
 
 
 def _is_section_end_heading(line: str) -> bool:

@@ -462,6 +462,8 @@ Known limitations:
 - the current deterministic parser supports text-based PDFs and JPEG/PNG CV images
 - scanned PDFs require a future PDF-page-to-image OCR integration
 - extraction is rule-based and may return `422` when the CV layout does not expose recognizable experience headings and periods
+- a heading counts when it is at most four words made only of career vocabulary, in French or English — `EXPÉRIENCES PROFESSIONNELLES`, `EXPÉRIENCE PROFESSIONNELLE`, `PARCOURS PROFESSIONNEL`, `WORK EXPERIENCE`, `EMPLOYMENT HISTORY` and the like all open the section
+- month names are recognised in both languages, so `Mar 2018 - Dec 2020` sorts and parses like `mars 2018 - décembre 2020`
 - parsing is intended as prefill; `/analyze` remains the only V1 endpoint that uses AI for strategic interview preparation
 - this endpoint extracts only structured experience rows for now; it does not return skills, education, summary, or full CV content
 - this endpoint is intended to support a staged frontend migration from local parsing to backend parsing
