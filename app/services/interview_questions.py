@@ -18,10 +18,12 @@ from __future__ import annotations
 import json
 import re
 from dataclasses import dataclass
+from typing import Literal
 
 from openai import OpenAI
 from pydantic import BaseModel, ConfigDict, Field
 
+from app.observability.logging import logger
 from app.services.interview_preparation import InterviewQuestion, InterviewUseCase
 
 INTERVIEW_QUESTIONS_MODEL = "gpt-4o-mini"
@@ -29,7 +31,7 @@ INTERVIEW_QUESTIONS_MODEL = "gpt-4o-mini"
 #: Bumped whenever the questionnaires below change shape. A client holding a
 #: draft against an older version is asked to start again rather than to submit
 #: answers to questions that no longer exist.
-QUESTIONS_VERSION = "2.0"
+QUESTIONS_VERSION = "2.1"
 
 #: What fits on one page, and therefore in five minutes.
 MIN_QUESTIONS = 5
@@ -50,6 +52,10 @@ class PreparedQuestion(BaseModel):
     #: This is what turns a script into something the reader can improvise from.
     intent: str = Field(min_length=1)
     answer: str = Field(min_length=1)
+    #: Whether `answer` is a sentence to say, or a directive on how to answer.
+    #: Defaults to the modest one: a label that over-promises is worse than a
+    #: label that under-promises, because the reader plans around it.
+    kind: Literal["sentence", "guidance"] = "guidance"
 
 
 class PreparedInterview(BaseModel):
@@ -86,6 +92,13 @@ class PreparedInterviewRequest(BaseModel):
     #: for a recruitment, the last three roles for an internal move. Sent by the
     #: client because the parsing already happens there via /cv/parse.
     experiences: list[CVExperience] = Field(default_factory=list)
+    #: The CV as extracted text, before /cv/parse reduced it to rows.
+    #:
+    #: Measured: three rows of title/company/period answer "who are you" and
+    #: nothing else, so seven answers out of eight stayed directives. The bullets
+    #: the reduction throws away — "refonte du site X, équipe de 8" — are exactly
+    #: the material the answers need.
+    cv_text: str = ""
 
 
 @dataclass(frozen=True)
@@ -128,6 +141,12 @@ USE_CASES: dict[str, UseCaseDefinition] = {
                     "Collez l'offre d'emploi",
                     "Copiez le texte de l'annonce. Les questions seront tirées de ce qui y est demandé.",
                 ),
+                _question(
+                    "achievement",
+                    "Racontez une réalisation proche de ce poste",
+                    "Une situation, ce que vous avez fait, ce que ça a donné. C'est elle qui transforme les consignes en phrases que vous pourrez dire.",
+                    required=False,
+                ),
             ],
         ),
         focus=(
@@ -149,6 +168,12 @@ USE_CASES: dict[str, UseCaseDefinition] = {
                 _question("current_site", "Où êtes-vous aujourd'hui ?", "Site, ville ou entité.", input_type="short_text"),
                 _question("target_role", "Le poste visé", "Intitulé et équipe.", input_type="short_text"),
                 _question("target_site", "Où voulez-vous aller ?", "Site, ville ou entité visée.", input_type="short_text"),
+                _question(
+                    "current_achievement",
+                    "Qu'avez-vous accompli dans votre poste actuel ?",
+                    "Un résultat concret, même modeste. Sans lui, les réponses resteront des consignes.",
+                    required=False,
+                ),
             ],
         ),
         focus=(
@@ -170,6 +195,12 @@ USE_CASES: dict[str, UseCaseDefinition] = {
                     "target_position",
                     "Le poste que vous visez",
                     "Le niveau ou les responsabilités souhaités, et ce qui changerait dans votre rôle.",
+                ),
+                _question(
+                    "already_doing",
+                    "Que faites-vous déjà du poste visé ?",
+                    "Les responsabilités que vous exercez sans qu'elles figurent dans votre fiche de poste.",
+                    required=False,
                 ),
             ],
         ),
@@ -228,7 +259,14 @@ USE_CASES: dict[str, UseCaseDefinition] = {
             short_title="Performance",
             description="Votre travail est évalué : chaque affirmation doit pouvoir être étayée.",
             questionnaire_version=QUESTIONS_VERSION,
-            questions=[],
+            questions=[
+                _question(
+                    "result_to_highlight",
+                    "Quel résultat voulez-vous mettre en avant ?",
+                    "Le fait que vous voulez qu'on retienne, avec ce qui permet de l'étayer.",
+                    required=False,
+                ),
+            ],
         ),
         focus=(
             "Une évaluation de performance a des conséquences. Chaque réponse "
@@ -281,6 +319,21 @@ def validate_request(
 
 
 _SENTENCE_END = re.compile(r"(?<=[.!?…])\s+")
+#: Enough to tell a sentence someone says from a directive telling them how.
+_FIRST_PERSON = re.compile(r"\b(je|mon|ma|mes)\b|\bj\u2019|\bj\'", re.IGNORECASE)
+
+
+def settle_kind(answer: str, claimed: str) -> str:
+    """Never let the label promise more than the answer delivers.
+
+    The model decides `kind`, and it is optimistic about it. A directive
+    labelled "sentence" tells someone they have a line ready when they have
+    homework — and they find out in the room. Downgrading only ever goes one
+    way, so the label is safe to plan around.
+    """
+    if claimed == "sentence" and not _FIRST_PERSON.search(answer):
+        return "guidance"
+    return claimed
 
 
 def trim_to_budget(text: str, max_characters: int = MAX_ANSWER_CHARACTERS) -> str:
@@ -308,8 +361,10 @@ def build_prompt(
     definition: UseCaseDefinition,
     answers: dict[str, str],
     experiences: list[CVExperience],
+    cv_text: str = "",
 ) -> str:
     usable = experiences[: definition.experience_limit] if definition.experience_limit else []
+    cv_text = cv_text.strip() if definition.experience_limit else ""
     return f"""
 Tu prépares quelqu'un à un entretien : {definition.catalog.title}.
 
@@ -344,10 +399,29 @@ Donc : n'affirme jamais à la première personne une expérience, un outil, une
 méthode, un chiffre ou un niveau qui ne soit pas écrit noir sur blanc dans ce
 qu'elle a fourni.
 
-- si la matière est là, la réponse se dit à la première personne, telle quelle ;
-- si elle n'y est pas, la réponse dit COMMENT répondre, à l'impératif, sans rien
-  affirmer : « Citez un projet où vous avez cadré un besoin, dites avec qui vous
-  l'avez fait, puis ce que vous avez livré. »
+CE QUE TU DOIS FAIRE DE CE QU'ELLE A ÉCRIT
+Cette règle compte autant que la précédente. Ne pas inventer ne veut pas dire
+ne rien affirmer : tout ce que la personne a écrit, tu dois t'en servir.
+
+Une seule situation racontée nourrit souvent quatre ou cinq réponses — le même
+projet éclaire le cadrage, le planning, la coordination et la gestion d'un
+client difficile. Cherche activement, pour chaque question, ce qui dans sa
+matière peut y répondre, même de biais.
+
+Quand tu trouves : écris la phrase qu'elle dira, à la première personne, en
+reprenant ses faits, ses chiffres et ses noms. `kind` vaut "sentence".
+Exemple — matière fournie : « refonte reprise avec trois mois de retard, périmètre
+recadré, deux fonctionnalités coupées, livré dans les délais révisés à 8 ».
+Réponse attendue : « J'ai repris une refonte qui avait trois mois de retard.
+J'ai recadré le périmètre avec le client et coupé deux fonctionnalités
+secondaires, et nous avons livré dans les délais révisés à huit. »
+
+Quand tu ne trouves rien : la réponse dit COMMENT répondre, à l'impératif, sans
+rien affirmer — « Citez un projet où vous avez cadré un besoin, dites avec qui
+vous l'avez fait, puis ce que vous avez livré » — et `kind` vaut "guidance".
+
+Rendre une consigne alors que la matière existait est un échec au même titre
+qu'inventer. Dans les deux cas la personne se retrouve sans phrase à dire.
 
 Une réponse inventée met la personne en difficulté ; une consigne ne la met
 jamais en défaut. N'oblige jamais quelqu'un à parler de ce qu'il ne maîtrise
@@ -372,7 +446,7 @@ Retourne uniquement un objet JSON respectant exactement cette structure :
 {{
   "use_case_id": "{definition.catalog.id}",
   "title": "",
-  "questions": [{{"question": "", "intent": "", "answer": ""}}],
+  "questions": [{{"question": "", "intent": "", "answer": "", "kind": "sentence|guidance"}}],
   "action_plan": [""]
 }}
 
@@ -382,7 +456,134 @@ Peut être vide ; dans ce cas aucune réponse ne doit rien affirmer d'elle.
 
 EXPÉRIENCES PROFESSIONNELLES FOURNIES — faits sur elle, peuvent être vides.
 {json.dumps([item.model_dump() for item in usable], ensure_ascii=False)}
+
+CV DE LA PERSONNE, TEXTE BRUT — faits sur elle, peut être vide.
+{cv_text}
 """
+
+
+class _GroundingVerdict(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+
+    index: int
+    grounded: bool
+    #: The rewrite, only when `grounded` is false.
+    answer: str = ""
+
+
+class _GroundingReport(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+
+    verdicts: list[_GroundingVerdict] = Field(default_factory=list)
+
+
+def needs_grounding(question: PreparedQuestion) -> bool:
+    """Whether this answer asserts something, whatever it is labelled.
+
+    Checking only what the model called a "sentence" left a hole: it labelled
+    "Je privilégie la communication ouverte et écoute les préoccupations des
+    clients" as guidance, so nothing checked it — and it is a first-person claim
+    about someone who never said it. What matters is whether the text asserts,
+    not what the text is called.
+    """
+    return question.kind == "sentence" or bool(_FIRST_PERSON.search(question.answer))
+
+
+def build_grounding_prompt(material: str, prepared: PreparedInterview) -> str:
+    claims = [
+        {"index": index, "answer": question.answer}
+        for index, question in enumerate(prepared.questions)
+        if needs_grounding(question)
+    ]
+    return f"""
+Tu vérifies des réponses d'entretien écrites à la première personne.
+
+VOICI TOUT CE QUE LA PERSONNE A ÉCRIT SUR ELLE :
+{material}
+
+Rien d'autre n'est vrai d'elle. En particulier, une exigence lue dans une offre
+d'emploi — « anglais apprécié », « maîtrise de Jira » — décrit le poste, PAS son
+parcours : une réponse qui l'affirme n'est pas appuyée.
+
+Pour chaque réponse ci-dessous, dis si TOUT ce qu'elle affirme est appuyé par la
+matière ci-dessus.
+
+- appuyée : "grounded": true, et laisse "answer" vide ;
+- non appuyée, même partiellement : "grounded": false, et réécris-la à
+  l'impératif, sans rien affirmer, en gardant le sujet — par exemple
+  « Citez un projet où vous avez tenu un budget, dites comment vous l'avez suivi. »
+
+Une réponse partiellement appuyée est non appuyée : il suffit d'une affirmation
+de trop pour que la personne soit prise en défaut.
+
+Réponds uniquement par un objet JSON :
+{{"verdicts": [{{"index": 0, "grounded": true, "answer": ""}}]}}
+
+RÉPONSES À VÉRIFIER :
+{json.dumps(claims, ensure_ascii=False)}
+"""
+
+
+def verify_grounding(
+    client: OpenAI,
+    material: str,
+    prepared: PreparedInterview,
+) -> PreparedInterview:
+    """Second pass: keep only the first-person claims the material supports.
+
+    Prompt wording alone proved unstable. Tightening it produced eight
+    directives and no usable sentence; loosening it produced five sentences and
+    three inventions — including "je suis à l'aise en anglais professionnel",
+    read straight off an offer that merely listed English as a plus. The
+    seesaw is the signal: one instruction cannot both authorise and forbid the
+    same move reliably, so the check is a separate pass with one job.
+
+    It only ever downgrades. A failure here leaves the generation untouched
+    rather than dropping the page.
+    """
+    if not any(needs_grounding(question) for question in prepared.questions):
+        return prepared
+
+    try:
+        completion = client.chat.completions.create(
+            model=INTERVIEW_QUESTIONS_MODEL,
+            response_format={"type": "json_object"},
+            messages=[
+                {"role": "user", "content": build_grounding_prompt(material, prepared)}
+            ],
+        )
+        content = completion.choices[0].message.content if completion.choices else None
+        if not content:
+            return prepared
+        report = _GroundingReport.model_validate_json(content)
+    except Exception:
+        logger.warning("Grounding pass failed, keeping the generation as written")
+        return prepared
+
+    corrections = {
+        verdict.index: verdict
+        for verdict in report.verdicts
+        if not verdict.grounded
+    }
+    if not corrections:
+        return prepared
+
+    logger.info("Grounding pass downgraded %d unsupported answer(s)", len(corrections))
+    questions = []
+    for index, question in enumerate(prepared.questions):
+        verdict = corrections.get(index)
+        if verdict is None or not needs_grounding(question):
+            questions.append(question)
+            continue
+        questions.append(
+            question.model_copy(
+                update={
+                    "kind": "guidance",
+                    "answer": trim_to_budget(verdict.answer) or question.answer,
+                }
+            )
+        )
+    return prepared.model_copy(update={"questions": questions})
 
 
 def generate_prepared_interview(
@@ -390,11 +591,18 @@ def generate_prepared_interview(
     definition: UseCaseDefinition,
     answers: dict[str, str],
     experiences: list[CVExperience],
+    cv_text: str = "",
 ) -> PreparedInterview:
+    usable = experiences[: definition.experience_limit] if definition.experience_limit else []
     completion = client.chat.completions.create(
         model=INTERVIEW_QUESTIONS_MODEL,
         response_format={"type": "json_object"},
-        messages=[{"role": "user", "content": build_prompt(definition, answers, experiences)}],
+        messages=[
+            {
+                "role": "user",
+                "content": build_prompt(definition, answers, experiences, cv_text),
+            }
+        ],
     )
 
     content = completion.choices[0].message.content if completion.choices else None
@@ -405,6 +613,14 @@ def generate_prepared_interview(
     if prepared.use_case_id != definition.catalog.id:
         raise ValueError("OpenAI response use_case_id does not match request")
 
+    material = "\n".join(
+        [answers.get(question.id, "") for question in definition.catalog.questions
+         if question.id != "job_offer"]
+        + [f"{item.title} - {item.company} - {item.period}" for item in usable]
+        + [cv_text.strip() if definition.experience_limit else ""]
+    ).strip()
+    prepared = verify_grounding(client, material or "(rien)", prepared)
+
     # The page is bounded here rather than trusted to the prompt.
     return prepared.model_copy(
         update={
@@ -413,6 +629,7 @@ def generate_prepared_interview(
                     update={
                         "intent": trim_to_budget(question.intent, MAX_INTENT_CHARACTERS),
                         "answer": trim_to_budget(question.answer),
+                        "kind": settle_kind(question.answer, question.kind),
                     }
                 )
                 for question in prepared.questions

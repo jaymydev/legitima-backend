@@ -196,7 +196,7 @@ Response:
 {
   "use_case_id": "internal_mobility",
   "title": "",
-  "questions": [{"question": "", "intent": "", "answer": ""}],
+  "questions": [{"question": "", "intent": "", "answer": "", "kind": "sentence"}],
   "action_plan": [""]
 }
 ```
@@ -209,6 +209,20 @@ for. Answers are capped at 420 characters. Both are bounded **in code**, cut at 
 sentence boundary — asking the model for brevity works most of the time, and the
 page has to hold every time. The whole thing is meant to be read in five minutes,
 in the corridor.
+
+`kind` says whether `answer` is a sentence to say (`sentence`) or a directive on
+how to answer (`guidance`). It is the honest half of the response: with no
+material about the person, every answer is guidance, because the alternative is
+inventing a career. `cv_text` and the optional open question on each use case
+exist to earn sentences.
+
+A second model call verifies every answer that asserts anything — whatever the
+model labelled it — against the material the person supplied, and rewrites the
+unsupported ones as directives. Prompt wording alone was measured unstable:
+tightened it produced no usable sentence, loosened it produced "je suis à l'aise
+en anglais professionnel" from an offer that merely listed English as a plus.
+The pass only ever downgrades, and a failure in it leaves the generation as
+written rather than dropping the page.
 
 Errors follow the shape under [Error responses](#error-responses):
 `unknown_use_case`, `preparation_invalid_request`, `service_unavailable`,

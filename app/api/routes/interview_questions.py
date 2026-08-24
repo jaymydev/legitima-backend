@@ -87,6 +87,7 @@ def prepare_interview_questions(
             definition,
             answers,
             payload.experiences,
+            payload.cv_text,
         )
     except Exception as exc:
         logger.exception("Interview questions failed use_case_id=%s", payload.use_case_id)

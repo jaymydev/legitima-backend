@@ -256,3 +256,61 @@ def test_the_intent_is_bounded_too(monkeypatch) -> None:
     for question in response.json()["questions"]:
         assert len(question["intent"]) <= service.MAX_INTENT_CHARACTERS
         assert question["intent"].endswith(".")
+
+
+@pytest.mark.parametrize(
+    "answer,claimed,expected",
+    [
+        ("J'ai piloté la refonte du site chez Novaweb.", "sentence", "sentence"),
+        ("Mon équipe comptait huit personnes.", "sentence", "sentence"),
+        # The model is optimistic about this field, and a directive labelled
+        # "sentence" tells someone they have a line ready when they have
+        # homework. They find out in the room.
+        ("Citez un projet où vous avez cadré un besoin.", "sentence", "guidance"),
+        ("Décrivez une situation tendue et votre approche.", "guidance", "guidance"),
+    ],
+)
+def test_a_label_never_promises_more_than_the_answer_delivers(
+    answer: str, claimed: str, expected: str
+) -> None:
+    assert service.settle_kind(answer, claimed) == expected
+
+
+def test_only_a_recruitment_and_an_internal_move_read_the_cv_text() -> None:
+    """The raw CV is material about the person, so the same rule applies to it
+    as to the parsed rows: an annual review must not replay someone's history."""
+    cv = "Refonte du site Ardal, equipe de 8 personnes, livree en 4 mois."
+
+    assert cv in service.build_prompt(service.USE_CASES["recruitment"], {}, [], cv)
+    assert cv in service.build_prompt(service.USE_CASES["internal_mobility"], {}, [], cv)
+    assert cv not in service.build_prompt(service.USE_CASES["annual_review"], {}, [], cv)
+
+
+def test_every_type_offers_a_way_to_earn_real_sentences() -> None:
+    """Measured: with the job offer alone, one answer out of eight was a sentence
+    someone could say; the rest were directives. Each type therefore carries at
+    least one optional question whose whole purpose is to supply material.
+
+    Annual and mid-year already ask for objectives, which is that material.
+    """
+    for use_case_id, definition in service.USE_CASES.items():
+        optional = [q for q in definition.catalog.questions if not q.required]
+        objectives = [q for q in definition.catalog.questions if "objectives" in q.id]
+        assert optional or objectives, f"{use_case_id} has no way to earn a real answer"
+
+
+@pytest.mark.parametrize(
+    "answer,kind,checked",
+    [
+        ("J'ai piloté la refonte chez Novaweb.", "sentence", True),
+        # The hole this closes: the model labelled a first-person claim as
+        # guidance, so nothing verified it.
+        ("Je privilégie la communication ouverte avec mes clients.", "guidance", True),
+        ("Citez un projet et dites ce que vous avez livré.", "guidance", False),
+    ],
+)
+def test_anything_that_asserts_gets_verified(answer: str, kind: str, checked: bool) -> None:
+    question = service.PreparedQuestion(
+        question="Q ?", intent="I.", answer=answer, kind=kind
+    )
+    assert service.needs_grounding(question) is checked
