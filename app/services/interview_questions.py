@@ -35,6 +35,10 @@ QUESTIONS_VERSION = "2.0"
 MIN_QUESTIONS = 5
 MAX_QUESTIONS = 8
 MAX_ANSWER_CHARACTERS = 420
+#: `intent` sits between the question and the answer, so it is read on the way
+#: to the thing the reader actually came for. One short line earns that place;
+#: two do not.
+MAX_INTENT_CHARACTERS = 80
 MAX_ACTION_PLAN_ITEMS = 3
 
 
@@ -340,8 +344,10 @@ RÈGLES
 - chaque phrase doit être grammaticalement complète ;
 - deux questions ne doivent pas se recouvrir : si deux réponses se ressemblent,
   supprime-en une et propose autre chose ;
-- `intent` dit en une phrase ce que l'interlocuteur cherche derrière la
-  question — c'est ce qui permet d'improviser si elle est posée autrement ;
+- `intent` dit ce que l'interlocuteur cherche derrière la question — c'est ce
+  qui permet d'improviser si elle est posée autrement. UNE SEULE phrase, moins
+  de {MAX_INTENT_CHARACTERS} caractères : elle est lue en passant, entre la
+  question et la réponse ;
 - `action_plan` : au plus {MAX_ACTION_PLAN_ITEMS} gestes concrets à faire avant
   d'entrer, jamais un résumé de ce qui précède.
 
@@ -385,7 +391,12 @@ def generate_prepared_interview(
     return prepared.model_copy(
         update={
             "questions": [
-                question.model_copy(update={"answer": trim_to_budget(question.answer)})
+                question.model_copy(
+                    update={
+                        "intent": trim_to_budget(question.intent, MAX_INTENT_CHARACTERS),
+                        "answer": trim_to_budget(question.answer),
+                    }
+                )
                 for question in prepared.questions
             ]
         }

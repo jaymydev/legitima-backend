@@ -222,3 +222,30 @@ def test_the_page_is_bounded_by_the_code_not_by_the_prompt(monkeypatch) -> None:
     assert response.status_code == 200
     for question in response.json()["questions"]:
         assert len(question["answer"]) <= service.MAX_ANSWER_CHARACTERS
+
+
+def test_the_intent_is_bounded_too(monkeypatch) -> None:
+    """It sits between the question and the answer, so it is read on the way to
+    the thing the reader came for. One line earns that place; three do not."""
+    wordy = dict(VALID_RESPONSE)
+    wordy["questions"] = [
+        {
+            **question,
+            "intent": "Il cherche à mesurer votre lucidité. Puis votre capacité à "
+            "structurer. Puis votre honnêteté sur les écarts constatés.",
+        }
+        for question in VALID_RESPONSE["questions"]
+    ]
+    monkeypatch.setenv("OPENAI_API_KEY", "test-key")
+    monkeypatch.setattr(route, "OpenAI", _fake_openai(wordy))
+
+    response = client.post(
+        "/v3/interview/questions",
+        json={"use_case_id": "performance_review", "questionnaire_version": service.QUESTIONS_VERSION},
+        headers={"X-Forwarded-For": "198.51.100.67"},
+    )
+
+    assert response.status_code == 200
+    for question in response.json()["questions"]:
+        assert len(question["intent"]) <= service.MAX_INTENT_CHARACTERS
+        assert question["intent"].endswith(".")

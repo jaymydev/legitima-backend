@@ -203,7 +203,9 @@ Response:
 
 Between 5 and 8 questions, most likely first. `intent` says in one sentence what
 the interviewer is checking, so the reader can improvise when the question comes
-out differently. Answers are capped at 420 characters **in code**, cut at a
+out differently; it is capped at 80 characters because it sits between the
+question and the answer, and is read on the way to the thing the reader came
+for. Answers are capped at 420 characters. Both are bounded **in code**, cut at a
 sentence boundary — asking the model for brevity works most of the time, and the
 page has to hold every time. The whole thing is meant to be read in five minutes,
 in the corridor.
