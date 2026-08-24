@@ -179,10 +179,17 @@ def test_a_recruitment_may_use_the_whole_cv() -> None:
 def test_every_prompt_forbids_inventing_facts(use_case_id: str) -> None:
     """With less input, the model has more room to invent — so the rule matters
     more here than it did before, not less."""
-    prompt = service.build_prompt(service.USE_CASES[use_case_id], {}, [])
+    # Le prompt est retourné à la ligne pour rester lisible, donc les sondes
+    # portent sur le texte à espaces normalisés : reformater le prompt ne doit
+    # pas casser le test, en supprimer la règle doit le casser.
+    prompt = " ".join(service.build_prompt(service.USE_CASES[use_case_id], {}, []).split())
 
-    assert "N'invente aucun fait" in prompt
-    assert "STRUCTURE" in prompt
+    # Ce que l'offre réclame décrit le poste, pas le parcours de la personne.
+    # Une vraie génération a produit « j'ai utilisé Jira » à partir d'une simple
+    # exigence d'annonce : la distinction doit rester écrite noir sur blanc.
+    assert "PAS ce que la personne a fait" in prompt
+    assert "n'affirme jamais à la première personne" in prompt
+    assert "COMMENT répondre" in prompt
 
 
 def test_an_over_long_answer_is_cut_at_a_sentence_boundary() -> None:

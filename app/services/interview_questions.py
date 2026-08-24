@@ -329,18 +329,35 @@ réponse courte et sûre vaut mieux qu'une réponse complète et impossible à
 retenir.
 
 CE QUE TU NE DOIS JAMAIS FAIRE
-N'invente aucun fait sur cette personne : ni résultat, ni chiffre, ni
-compétence, ni expérience, ni motivation, qui ne soit pas écrit ci-dessous.
-Quand tu n'as pas la matière, donne la STRUCTURE de la réponse plutôt qu'un
-contenu inventé — par exemple « Nommez le projet concerné, dites ce que vous y
-avez décidé, puis le résultat obtenu ». Une réponse inventée met la personne en
-difficulté au moment de la question de suivi ; une structure ne la met jamais en
-défaut.
-N'oblige jamais quelqu'un à parler de ce qu'il ne maîtrise pas.
+Deux sources arrivent plus bas et elles n'ont pas le même statut.
+
+Ce que l'OFFRE ou le POSTE réclame décrit ce qu'on attend, PAS ce que la
+personne a fait. Une exigence lue dans une annonce n'est jamais une information
+sur son parcours. Transformer « maîtrise de Jira » en « j'ai utilisé Jira pour
+suivre l'avancement » est l'erreur la plus grave que tu puisses commettre ici :
+la personne récite une compétence qu'elle n'a peut-être pas, et se fait prendre
+à la question suivante.
+
+Seul CE QUE LA PERSONNE A ÉCRIT est un fait sur elle.
+
+Donc : n'affirme jamais à la première personne une expérience, un outil, une
+méthode, un chiffre ou un niveau qui ne soit pas écrit noir sur blanc dans ce
+qu'elle a fourni.
+
+- si la matière est là, la réponse se dit à la première personne, telle quelle ;
+- si elle n'y est pas, la réponse dit COMMENT répondre, à l'impératif, sans rien
+  affirmer : « Citez un projet où vous avez cadré un besoin, dites avec qui vous
+  l'avez fait, puis ce que vous avez livré. »
+
+Une réponse inventée met la personne en difficulté ; une consigne ne la met
+jamais en défaut. N'oblige jamais quelqu'un à parler de ce qu'il ne maîtrise
+pas, et ne lui fais jamais dire qu'il maîtrise quelque chose.
 
 RÈGLES
 - réponds uniquement en français ;
 - reste professionnel, factuel et non-jugeant ;
+- corrige-toi : relis chaque réponse et supprime toute affirmation dont la
+  source n'est pas explicitement dans ce que la personne a écrit ;
 - chaque phrase doit être grammaticalement complète ;
 - deux questions ne doivent pas se recouvrir : si deux réponses se ressemblent,
   supprime-en une et propose autre chose ;
@@ -359,10 +376,11 @@ Retourne uniquement un objet JSON respectant exactement cette structure :
   "action_plan": [""]
 }}
 
-Ce que la personne a fourni :
+CE QUE LA PERSONNE A ÉCRIT — la seule source de faits sur elle.
+Peut être vide ; dans ce cas aucune réponse ne doit rien affirmer d'elle.
 {json.dumps(answers, ensure_ascii=False)}
 
-Expériences professionnelles fournies (peuvent être vides) :
+EXPÉRIENCES PROFESSIONNELLES FOURNIES — faits sur elle, peuvent être vides.
 {json.dumps([item.model_dump() for item in usable], ensure_ascii=False)}
 """
 
