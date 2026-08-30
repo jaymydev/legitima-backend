@@ -1,12 +1,13 @@
-# API Contract - Legitima Backend V1 Scaffold
+# Contrat d'API — backend Legitima
 
 ## Scope
 
-This document describes the API endpoints currently implemented in the FastAPI backend as mounted in [app/main.py](/Users/milehanalivecomm/Documents/Developer/legitima-backend/app/main.py).
+Ce document décrit les routes réellement montées dans [app/main.py](../app/main.py).
+Rien d'autre ne fait partie du contrat.
 
-It documents the current V1 scaffold only. No additional endpoints are part of the official contract unless they are mounted in the backend.
-
-This file is the backend API source of truth for the current V1 scaffold.
+Le produit part désormais du **type d'entretien**, pas du parcours : la banque de
+questions écrite à la main sert le chemin principal, et le modèle n'intervient
+que pour personnaliser quand la personne a fourni de la matière.
 
 ## Base URL
 
@@ -20,15 +21,10 @@ http://localhost:8000
 
 ### Supported headers
 
-- `Content-Type: application/json` for `POST` and `PATCH` requests with JSON bodies
-- `X-User-Id: <string>` is required for all CRUD routes
-- `Authorization: Bearer <supabase_jwt>` may be sent by clients, but the backend does not validate or decode JWTs in V1
+- `Content-Type: application/json` for `POST` requests with JSON bodies
 
-### Header behavior
-
-- `GET /health` does not require `X-User-Id`
-- All CRUD endpoints return `400` with `{"detail":"X-User-Id header is required"}` when `X-User-Id` is missing
-- CRUD routes scope reads and writes using the provided `X-User-Id`
+No route takes any authentication. The `X-User-Id` header and the Supabase JWT
+were required only by the CRUD routers, which are gone.
 
 ## Rate limiting
 
@@ -137,9 +133,6 @@ under `fields`:
 The rate limiter is the only response outside this shape: `429` answers
 `{"error": "Rate limit exceeded: ..."}`, deliberately, since it is served to
 unauthenticated callers and says only that a limit was hit.
-
-The seven unused CRUD routers are not covered by any of this and still answer
-FastAPI's default `{"detail": ...}` in English.
 
 The catalog is [app/api/errors.py](../app/api/errors.py); every message lives in
 that one table.
@@ -548,323 +541,14 @@ OCR deployment requirements:
 
 - see `docs/cv-parse-ocr-deployment.md`
 
-## CRUD resource pattern
+## Limites connues
+
+- La banque est écrite à la main : sa couverture est celle de ce qui y a été
+  rédigé, pas de tout ce qui peut être demandé en entretien.
+- Trois verticales métier existent — développement back, commerce, comptabilité.
+  Les autres métiers ne reçoivent que le transversal.
+- Les compteurs de limitation vivent en mémoire d'un seul processus : corrects
+  pour une instance, faux dès qu'il y en a deux.
+- `POST /analyze` et les routes `v2` restent montées pour les builds TestFlight
+  qui les appellent encore. Aucun client actuel ne les utilise.
 
-The following resource groups are mounted:
-
-- `/contexte`
-- `/parcours`
-- `/elements`
-- `/zones`
-- `/requalifications`
-- `/fil-conducteur`
-- `/reponses`
-
-Each group exposes the same route pattern and currently uses the same request/response shape:
-
-- Create body:
-
-```json
-{
-  "name": "string"
-}
-```
-
-- Update body:
-
-```json
-{
-  "name": "string"
-}
-```
-
-`PATCH` accepts partial input, but the only supported field today is `name`.
-
-- Record response:
-
-```json
-{
-  "id": "string",
-  "user_id": "string",
-  "name": "string"
-}
-```
-
-## Endpoint details
-
-### `/contexte`
-
-Resource backing table: `contexte_entretiens`
-
-#### `POST /contexte`
-
-Required headers:
-
-- `X-User-Id`
-- `Content-Type: application/json`
-
-Request body:
-
-```json
-{
-  "name": "Target role clarification"
-}
-```
-
-Response `201`
-
-```json
-{
-  "id": "string",
-  "user_id": "string",
-  "name": "Target role clarification"
-}
-```
-
-#### `GET /contexte`
-
-Required headers:
-
-- `X-User-Id`
-
-Response `200`
-
-```json
-[
-  {
-    "id": "string",
-    "user_id": "string",
-    "name": "Target role clarification"
-  }
-]
-```
-
-#### `GET /contexte/{contexte_id}`
-
-Required headers:
-
-- `X-User-Id`
-
-Response `200`
-
-```json
-{
-  "id": "string",
-  "user_id": "string",
-  "name": "Target role clarification"
-}
-```
-
-Not found response `404`
-
-```json
-{
-  "detail": "ContexteEntretien not found"
-}
-```
-
-#### `PATCH /contexte/{contexte_id}`
-
-Required headers:
-
-- `X-User-Id`
-- `Content-Type: application/json`
-
-Request body:
-
-```json
-{
-  "name": "Updated context"
-}
-```
-
-Response `200`
-
-```json
-{
-  "id": "string",
-  "user_id": "string",
-  "name": "Updated context"
-}
-```
-
-Validation response `400`
-
-```json
-{
-  "detail": "No fields provided"
-}
-```
-
-Not found response `404`
-
-```json
-{
-  "detail": "ContexteEntretien not found"
-}
-```
-
-#### `DELETE /contexte/{contexte_id}`
-
-Required headers:
-
-- `X-User-Id`
-
-Response `204`
-
-No response body.
-
-Not found response `404`
-
-```json
-{
-  "detail": "ContexteEntretien not found"
-}
-```
-
-### `/parcours`
-
-Resource backing table: `parcours_professionnels`
-
-Routes and payloads follow the same pattern as `/contexte`.
-
-- `POST /parcours` -> `201`, record body
-- `GET /parcours` -> `200`, list of records
-- `GET /parcours/{parcours_id}` -> `200`, single record, `404` detail `ParcoursProfessionnel not found`
-- `PATCH /parcours/{parcours_id}` -> `200`, single record, `400` detail `No fields provided`, `404` detail `ParcoursProfessionnel not found`
-- `DELETE /parcours/{parcours_id}` -> `204`, `404` detail `ParcoursProfessionnel not found`
-
-Record shape:
-
-```json
-{
-  "id": "string",
-  "user_id": "string",
-  "name": "Career path analysis"
-}
-```
-
-### `/elements`
-
-Resource backing table: `elements_de_parcours`
-
-Routes and payloads follow the same pattern as `/contexte`.
-
-- `POST /elements` -> `201`, record body
-- `GET /elements` -> `200`, list of records
-- `GET /elements/{element_id}` -> `200`, single record, `404` detail `ElementDeParcours not found`
-- `PATCH /elements/{element_id}` -> `200`, single record, `400` detail `No fields provided`, `404` detail `ElementDeParcours not found`
-- `DELETE /elements/{element_id}` -> `204`, `404` detail `ElementDeParcours not found`
-
-Record shape:
-
-```json
-{
-  "id": "string",
-  "user_id": "string",
-  "name": "Sensitive period input"
-}
-```
-
-### `/zones`
-
-Resource backing table: `zones_sensibles`
-
-Routes and payloads follow the same pattern as `/contexte`.
-
-- `POST /zones` -> `201`, record body
-- `GET /zones` -> `200`, list of records
-- `GET /zones/{zone_id}` -> `200`, single record, `404` detail `ZoneSensible not found`
-- `PATCH /zones/{zone_id}` -> `200`, single record, `400` detail `No fields provided`, `404` detail `ZoneSensible not found`
-- `DELETE /zones/{zone_id}` -> `204`, `404` detail `ZoneSensible not found`
-
-Record shape:
-
-```json
-{
-  "id": "string",
-  "user_id": "string",
-  "name": "Sensitive period"
-}
-```
-
-### `/requalifications`
-
-Resource backing table: `requalifications`
-
-Routes and payloads follow the same pattern as `/contexte`.
-
-- `POST /requalifications` -> `201`, record body
-- `GET /requalifications` -> `200`, list of records
-- `GET /requalifications/{requalification_id}` -> `200`, single record, `404` detail `Requalification not found`
-- `PATCH /requalifications/{requalification_id}` -> `200`, single record, `400` detail `No fields provided`, `404` detail `Requalification not found`
-- `DELETE /requalifications/{requalification_id}` -> `204`, `404` detail `Requalification not found`
-
-Record shape:
-
-```json
-{
-  "id": "string",
-  "user_id": "string",
-  "name": "Sensitive period reframing"
-}
-```
-
-### `/fil-conducteur`
-
-Resource backing table: `fils_conducteurs`
-
-Routes and payloads follow the same pattern as `/contexte`.
-
-- `POST /fil-conducteur` -> `201`, record body
-- `GET /fil-conducteur` -> `200`, list of records
-- `GET /fil-conducteur/{fil_conducteur_id}` -> `200`, single record, `404` detail `FilConducteur not found`
-- `PATCH /fil-conducteur/{fil_conducteur_id}` -> `200`, single record, `400` detail `No fields provided`, `404` detail `FilConducteur not found`
-- `DELETE /fil-conducteur/{fil_conducteur_id}` -> `204`, `404` detail `FilConducteur not found`
-
-Record shape:
-
-```json
-{
-  "id": "string",
-  "user_id": "string",
-  "name": "Professional narrative"
-}
-```
-
-### `/reponses`
-
-Resource backing table: `reponses_entretiens`
-
-Routes and payloads follow the same pattern as `/contexte`.
-
-- `POST /reponses` -> `201`, record body
-- `GET /reponses` -> `200`, list of records
-- `GET /reponses/{reponse_id}` -> `200`, single record, `404` detail `ReponseEntretien not found`
-- `PATCH /reponses/{reponse_id}` -> `200`, single record, `400` detail `No fields provided`, `404` detail `ReponseEntretien not found`
-- `DELETE /reponses/{reponse_id}` -> `204`, `404` detail `ReponseEntretien not found`
-
-Record shape:
-
-```json
-{
-  "id": "string",
-  "user_id": "string",
-  "name": "Difficult interview answer"
-}
-```
-
-## Known limitations
-
-- The backend currently exposes `GET /health`, the transitional `POST /analyze` endpoint, and scaffold CRUD operations.
-- `POST /analyze` is an officially supported transitional endpoint, not the target long-term API shape.
-- The route-level request and response schemas are simple `name`-based payloads; domain-specific fields are not implemented yet.
-- CRUD ownership is based only on the `X-User-Id` header value supplied by the client.
-- JWTs are not validated or decoded by the backend in V1.
-- If `SUPABASE_URL` or `SUPABASE_ANON_KEY` is missing, CRUD routes return `500` with `{"detail":"Supabase is not configured"}`.
-- If `OPENAI_API_KEY` is missing, `POST /analyze` returns `500`.
-- Persistence errors from Supabase are not normalized into a dedicated public error contract yet.
-- `POST /analyze` currently depends directly on a synchronous OpenAI API call.
-- The current `/analyze` request schema is intentionally narrow and only covers the payload used by the current iOS flow.
-- The current `/analyze` response is a single aggregated structure consumed by the frontend and will likely be replaced later by more explicit domain endpoints.
-- The current backend guarantees reliable support only for French output on `/analyze`.

@@ -1,2 +1,0 @@
-class ContexteEntretien:
-    pass
