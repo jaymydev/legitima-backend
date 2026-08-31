@@ -156,6 +156,40 @@ Response `200`
 The pivot. The interview type carries the preparation; the career path is
 optional material rather than the subject. No analysis runs first.
 
+### `GET /v3/interview/bank`
+
+The main path: the hand-written question bank. No model call — the response is
+instant, costs nothing, and is useful to someone who typed nothing at all.
+
+Query parameters: `use_case_id` (required, one of the six types),
+`metier` (optional vertical: `developpement_back`, `commerce`, `comptabilite` —
+see `GET /v3/interview/metiers`), `seen` (comma-separated ids already served,
+capped at 200; recently seen questions are excluded so a second preparation
+brings new ones).
+
+Response `200`:
+
+```json
+{
+  "use_case_id": "recruitment",
+  "questions": [
+    {"id": "", "question": "", "answer": "", "follow_up": "", "avoid": ""}
+  ],
+  "action_plan": ["Relisez l'annonce une dernière fois : …"]
+}
+```
+
+Eight questions, most probable first — the order of the bank IS the data.
+`answer` and `follow_up` are templates with `<BALISE>` slots, delivered intact:
+they are filled **on the device**, which is what lets someone put their salary
+in an answer without it ever reaching the server.
+
+`action_plan` is the "before entering" block, hand-written per interview type,
+read as-is with five minutes and a corridor: one to three gestures, no slots.
+When a personalised preparation exists, its own `action_plan` — more specific —
+replaces this one on the client. An unknown `use_case_id` answers `404`
+`unknown_use_case`.
+
 ### `GET /v3/interview/use-cases`
 
 Six types, questionnaire version `2.1`. There is no "not sure yet" entry: someone

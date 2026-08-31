@@ -7,6 +7,7 @@ from pydantic import BaseModel
 from app.api.errors import UNKNOWN_USE_CASE, user_facing_error
 from app.observability.logging import logger
 from app.services.bank_selection import METIERS, PAGE_SIZE, select
+from app.services.question_bank import ACTION_PLANS
 
 router = APIRouter(prefix="/v3/interview", tags=["Question bank V3"])
 
@@ -25,6 +26,9 @@ class BankQuestion(BaseModel):
 class BankPage(BaseModel):
     use_case_id: str
     questions: list[BankQuestion]
+    #: « Avant d'entrer » — écrit à la main comme les questions, lu tel quel.
+    #: Champ additionnel : les clients qui ne le connaissent pas l'ignorent.
+    action_plan: list[str] = []
 
 
 @router.get("/bank", response_model=BankPage)
@@ -66,6 +70,7 @@ def get_bank_page(
     return BankPage(
         use_case_id=selection.use_case_id,
         questions=[BankQuestion(**vars(entry)) for entry in selection.entries],
+        action_plan=ACTION_PLANS.get(selection.use_case_id, []),
     )
 
 

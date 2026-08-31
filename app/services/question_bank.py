@@ -1235,3 +1235,45 @@ METIER_COMPTA: list[BankEntry] = [
         avoid="ne vous limitez pas à la définition. C'est le passage comptable/fiscal qui est évalué.",
     ),
 ]
+
+#: « Avant d'entrer » : le bloc qu'on lit avec cinq minutes et un couloir.
+#:
+#: Écrit à la main comme le reste de la banque, un plan par type d'entretien,
+#: du geste le plus rentable au moins. Trois gestes maximum : au-delà, ce n'est
+#: plus un plan, c'est une révision — et il n'y a pas le temps d'une révision.
+#: Aucune balise : ce bloc se lit tel quel, il ne se remplit pas.
+#:
+#: Quand une personnalisation a été générée, son plan d'action — plus
+#: spécifique — remplace celui-ci côté client.
+ACTION_PLANS: dict[str, list[str]] = {
+    "recruitment": [
+        "Relisez l'annonce une dernière fois : c'est d'elle que viendront les questions.",
+        "Redites votre réalisation à voix haute, une fois, avec son résultat.",
+        "Gardez une question à poser sur le poste : elle se prépare maintenant, pas dans la pièce.",
+    ],
+    "internal_mobility": [
+        "Redites vos deux phrases : pourquoi vous partez, pourquoi vous arrivez. C'est sur les deux qu'on vous attend.",
+        "Préparez un mot sur ce que votre départ coûte à votre équipe actuelle, et comment vous proposez de l'amortir.",
+        "Nommez précisément ce qui vous attire dans l'équipe visée : « changer » n'est pas une destination.",
+    ],
+    "role_evolution": [
+        "Relisez vos exemples : chaque responsabilité visée doit s'appuyer sur une chose que vous faites déjà.",
+        "Redites en une phrase ce que vous demandez, et depuis quand vous en tenez déjà une partie.",
+        "Décidez de votre réponse si c'est « pas maintenant » : ce que vous demandez à la place, et à quelle échéance.",
+    ],
+    "annual_review": [
+        "Relisez vos objectifs de l'année un par un, avec où vous en êtes sur chacun.",
+        "Choisissez le résultat que vous voulez qu'on retienne, et redites-le à voix haute avec son chiffre.",
+        "Préparez ce que vous demandez pour l'année qui vient — l'entretien sert aussi à ça.",
+    ],
+    "mid_year": [
+        "Relisez vos objectifs et repérez ceux qui ne tiendront pas en l'état.",
+        "Pour chacun, préparez l'ajustement que vous proposez : c'est maintenant qu'il se négocie, pas en fin d'année.",
+        "Choisissez une avancée à mettre en avant, même modeste — le point d'étape n'est pas qu'une liste de retards.",
+    ],
+    "performance_review": [
+        "Relisez chaque affirmation que vous comptez faire, et vérifiez que vous pouvez l'étayer d'un fait.",
+        "Redites votre meilleur résultat à voix haute, avec ce qui le prouve.",
+        "Repérez le point qu'on pourrait vous opposer et décidez de votre réponse — une phrase, pas une plaidoirie.",
+    ],
+}
