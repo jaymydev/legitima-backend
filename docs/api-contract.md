@@ -158,7 +158,7 @@ optional material rather than the subject. No analysis runs first.
 
 ### `GET /v3/interview/use-cases`
 
-Six types, questionnaire version `2.0`. There is no "not sure yet" entry: someone
+Six types, questionnaire version `2.1`. There is no "not sure yet" entry: someone
 who cannot name their interview is not who this is for.
 
 ### `POST /v3/interview/questions`
@@ -168,11 +168,17 @@ Rate limited to 10/hour — it spends tokens.
 ```json
 {
   "use_case_id": "internal_mobility",
-  "questionnaire_version": "2.0",
+  "questionnaire_version": "2.1",
   "answers": [{"question_id": "current_role", "answer": "Cheffe de projet"}],
-  "experiences": [{"title": "", "company": "", "period": ""}]
+  "experiences": [{"title": "", "company": "", "period": ""}],
+  "cv_text": ""
 }
 ```
+
+`cv_text` is the raw text `/cv/parse` returned as `raw_text`, sent back verbatim
+when the person asked for personalisation. It is refused above 12 000 characters:
+the field lands verbatim in a token-costing prompt on an unauthenticated route,
+so the honest client's 6 000-character cap cannot be the only bound.
 
 `answers` and `experiences` may both be empty. A performance review needs neither,
 and still returns a usable page — that is the property the pivot exists for, and
@@ -494,17 +500,22 @@ Response `200`
       "company": "Legitima",
       "period": "2023-2026"
     }
-  ]
+  ],
+  "raw_text": "Senior Backend Engineer — Legitima\n- refonte du site, équipe de 8\n…"
 }
 ```
 
 Response contract notes:
 
-- only `experiences` is returned
-- each item contains exactly `title`, `company`, and `period`
+- each item of `experiences` contains exactly `title`, `company`, and `period`
 - values are strings
 - missing values may be returned as empty strings
 - the backend must not invent missing experiences
+- `raw_text` is the extracted text before it was reduced to rows, capped at
+  6 000 characters on a line boundary. The rows answer "who are you" and nothing
+  else; the bullets are the material personalised answers are built from. The
+  client keeps it **on the device** and sends it back as `cv_text` only when
+  the person asks for personalisation.
 
 Validation and error responses, all in the shape described under
 [Error responses](#error-responses):

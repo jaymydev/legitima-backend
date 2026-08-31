@@ -122,6 +122,22 @@ def test_an_unknown_type_is_refused() -> None:
     assert response.json()["code"] == errors.UNKNOWN_USE_CASE
 
 
+def test_an_oversized_cv_text_is_refused_before_any_token_is_spent(monkeypatch) -> None:
+    monkeypatch.setenv("OPENAI_API_KEY", "test-key")
+
+    response = client.post(
+        "/v3/interview/questions",
+        json={
+            "use_case_id": "performance_review",
+            "questionnaire_version": service.QUESTIONS_VERSION,
+            "cv_text": "a" * 12_001,
+        },
+        headers={"X-Forwarded-For": "198.51.100.66"},
+    )
+
+    assert response.status_code == 422
+
+
 def test_a_stale_questionnaire_is_refused() -> None:
     response = client.post(
         "/v3/interview/questions",

@@ -172,6 +172,11 @@ class CVParseResponse(BaseModel):
     model_config = ConfigDict(extra="forbid")
 
     experiences: list[CVExperience]
+    #: The extracted text before it was reduced to rows. The rows answer "who
+    #: are you" and nothing else; the bullets this reduction throws away are the
+    #: material the personalised answers are built from. The client keeps it on
+    #: the device and sends it back only when personalisation is requested.
+    raw_text: str = ""
 
 
 def ensure_supported_cv_upload(content_type: str | None) -> str:
@@ -429,11 +434,31 @@ def _run_ocr_attempts(
     return ""
 
 
+#: A résumé runs one to two pages, three to four thousand characters. The bound
+#: exists for the other documents people upload by mistake — a fifty-page PDF
+#: must not travel back to the phone, nor later into a token-costing prompt.
+MAX_RAW_TEXT_CHARACTERS = 6000
+
+
+def bounded_raw_text(extracted_text: str, limit: int = MAX_RAW_TEXT_CHARACTERS) -> str:
+    """Cap the extracted text at a line boundary.
+
+    Cut mid-line, the last item would end on half a fact — "réduction des coûts
+    de 3" — which reads as a claim of exactly the kind the product exists to
+    avoid. A whole line is dropped instead.
+    """
+    text = extracted_text.strip()
+    if len(text) <= limit:
+        return text
+    cut = text.rfind("\n", 0, limit)
+    return text[: cut if cut > 0 else limit].strip()
+
+
 def _response_from_extracted_text(extracted_text: str) -> CVParseResponse:
     result = parse_cv_text(extracted_text)
     if not result.experiences:
         raise user_facing_error(CV_NO_EXPERIENCES)
-    return result
+    return result.model_copy(update={"raw_text": bounded_raw_text(extracted_text)})
 
 
 def parse_cv_text(extracted_text: str) -> CVParseResponse:
