@@ -72,6 +72,30 @@ def test_every_type_serves_a_full_page_with_no_input_at_all(use_case_id: str) ->
     assert all(entry.question for entry in page.entries)
 
 
+@pytest.mark.parametrize("use_case_id", sorted(selection.PLANS))
+def test_every_type_has_a_plan_before_entering(use_case_id: str) -> None:
+    """« J'ai 5 minutes pour réviser » : chaque type sert son bloc, tel quel.
+
+    Trois gestes maximum — au-delà ce n'est plus un plan, c'est une révision.
+    Aucune balise : ce bloc ne se remplit pas, il se lit dans le couloir.
+    Et jamais le mot « objection » : le recruteur n'est pas un adversaire.
+    """
+    plan = bank.ACTION_PLANS[use_case_id]
+
+    assert 1 <= len(plan) <= 3
+    for gesture in plan:
+        assert gesture.strip()
+        assert "<" not in gesture
+        assert "objection" not in gesture.lower()
+
+
+def test_the_route_serves_the_plan_with_the_page() -> None:
+    response = client.get("/v3/interview/bank?use_case_id=recruitment")
+
+    assert response.status_code == 200
+    assert response.json()["action_plan"] == bank.ACTION_PLANS["recruitment"]
+
+
 def test_a_second_preparation_brings_new_questions() -> None:
     first = selection.select("recruitment")
     second = selection.select("recruitment", seen={e.id for e in first.entries})
