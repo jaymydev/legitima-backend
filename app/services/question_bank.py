@@ -750,7 +750,7 @@ EVOLUTION: list[BankEntry] = [
     BankEntry(
         id='quelle_est_votre_vision_pour_ce',
         question='Quelle est votre vision pour ce périmètre ?',
-        answer="« Trois choses : <CE_QUE_J_AI_FAIT> d'abord, parce que <DIFFICULTÉ>. Puis <RÉALISATION>. »",
+        answer="« Deux choses : <CE_QUE_J_AI_FAIT> d'abord, parce que <DIFFICULTÉ>. Puis <RÉALISATION>. »",
         avoid='ne proposez pas un plan de transformation. On attend des priorités, pas une révolution.',
     ),
     BankEntry(
@@ -1458,7 +1458,7 @@ METIER_OPS: list[BankEntry] = [
         id='les_sauvegardes_comment_savez_vous_qu',
         question='Vos sauvegardes : comment savez-vous qu\'elles marchent ?',
         answer="« Parce que je restaure régulièrement, pas parce que le travail de sauvegarde est vert. Une sauvegarde jamais restaurée est une hypothèse, pas une sauvegarde. »",
-        avoid='ne répondez que sur la sauvegarde. La question porte en réalité sur la restauration, et l\'entretien le vérifiera.',
+        avoid='ne répondez pas que sur la sauvegarde. La question porte en réalité sur la restauration, et l\'entretien le vérifiera.',
     ),
     BankEntry(
         id='un_deploiement_a_casse_la_production',
@@ -1835,7 +1835,7 @@ METIER_LOGISTIQUE: list[BankEntry] = [
     BankEntry(
         id='l_inventaire_revele_un_ecart_entre',
         question="L'inventaire révèle un écart entre le système et le physique.",
-        answer="« Je corrige le système sur le physique — la réalité a toujours raison — puis je cherche la cause par famille d'écart : erreurs de réception, de prélèvement, casse non déclarée, ou vol. Chaque cause a son remède, et aucun n'est « compter plus souvent» seul. »",
+        answer="« Je corrige le système sur le physique — la réalité a toujours raison — puis je cherche la cause par famille d'écart : erreurs de réception, de prélèvement, casse non déclarée, ou vol. Chaque cause a son remède, et aucun n'est « compter plus souvent » seul. »",
         avoid='ne banalisez pas l\'écart en « démarque habituelle ». C\'est l\'explication qui empêche de trouver la vraie.',
     ),
     BankEntry(
