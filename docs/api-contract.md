@@ -162,10 +162,12 @@ The main path: the hand-written question bank. No model call — the response is
 instant, costs nothing, and is useful to someone who typed nothing at all.
 
 Query parameters: `use_case_id` (required, one of the six types),
-`metier` (optional vertical: `developpement_back`, `commerce`, `comptabilite` —
-see `GET /v3/interview/metiers`), `seen` (comma-separated ids already served,
-capped at 200; recently seen questions are excluded so a second preparation
-brings new ones).
+`metier` (optional vertical — see `GET /v3/interview/metiers` for the current
+list and display labels), `encadrement` (optional, default `false`: a few
+entries — "un membre de votre équipe décroche" — only make sense for someone
+who manages people, and are kept in the drawer unless the client says so),
+`seen` (comma-separated ids already served, capped at 200; recently seen
+questions are excluded so a second preparation brings new ones).
 
 Response `200`:
 
@@ -590,8 +592,13 @@ OCR deployment requirements:
 
 - La banque est écrite à la main : sa couverture est celle de ce qui y a été
   rédigé, pas de tout ce qui peut être demandé en entretien.
-- Trois verticales métier existent — développement back, commerce, comptabilité.
-  Les autres métiers ne reçoivent que le transversal.
+- Dix verticales métier existent — développement back et front, data, ops,
+  cybersécurité, commerce, comptabilité, RH, marketing, logistique. Les autres
+  métiers ne reçoivent que le transversal. `GET /v3/interview/metiers` sert la
+  liste avec les libellés (`catalog: [{id, label}]`), pour que l'app affiche un
+  choix sans le coder en dur.
+- Deux entrées de comptabilité — TVA et liasse fiscale — attendent toujours une
+  relecture par quelqu'un du métier.
 - Les compteurs de limitation vivent en mémoire d'un seul processus : corrects
   pour une instance, faux dès qu'il y en a deux.
 - `POST /analyze` et les routes `v2` restent montées pour les builds TestFlight
