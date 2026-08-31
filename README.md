@@ -24,25 +24,29 @@ The full request and response contract is in
 
 ## What it serves
 
-Five routes, and the iOS client calls all five:
-
 | Route | Does | Limit |
 | --- | --- | --- |
-| `POST /analyze` | strategic reading of a career path | 10/hour |
-| `POST /v2/interview-preparation/kickoff` | one objection, one defensible answer | 10/hour |
-| `POST /v2/interview-preparation/analyze` | the guided preparation for one interview type | 10/hour |
-| `GET /v2/interview-preparation/use-cases` | the questionnaire catalog | 120/hour |
+| `GET /v3/interview/bank` | the questions to prepare, from the hand-written bank | 120/hour |
+| `POST /v3/interview/questions` | the same, personalised by the model | 10/hour |
 | `POST /cv/parse` | experience extraction from a PDF or a photo | 20/hour |
+| `POST /analyze` | strategic reading of a career path — **no client left** | 10/hour |
+| `POST /v2/interview-preparation/*` | the previous guided preparation — **no client left** | 10/hour |
+
+`GET /v3/interview/bank` is the main path and it makes **no model call**: it
+answers instantly, costs nothing, and works for someone who has typed nothing.
+That is what generation could not do without inventing a career.
+
+`/analyze` and the `v2` preparation are kept until the TestFlight builds still
+calling them are replaced. Nothing in the current app touches them.
 
 `/cv/parse` is deterministic: text extraction with `pypdf`, OCR with Tesseract,
 no model call and no token cost.
 
-The seven CRUD routers — `/contexte`, `/parcours`, `/elements`, `/zones`,
-`/requalifications`, `/fil-conducteur`, `/reponses` — are **scaffold from an earlier
-design and are not used by anything**. They require a Supabase project that is
-not configured, so in production they answer `500 Supabase is not configured`.
-They are documented here as dead weight, not as API. Removing them, and the
-`X-User-Id` header they alone require, would be a fair cleanup.
+The seven CRUD routers that came from an earlier design — `/contexte`,
+`/parcours`, `/elements`, `/zones`, `/requalifications`, `/fil-conducteur`,
+`/reponses` — are gone, along with the Supabase dependency and the `X-User-Id`
+header they alone required. Nothing ever called them, and in production they
+answered `500 Supabase is not configured`.
 
 ## Running it
 
@@ -60,7 +64,7 @@ the Dockerfile installs it, and
 deployment side.
 
 ```bash
-.venv/bin/python -m pytest        # 68 tests, no network, no API key needed
+.venv/bin/python -m pytest        # 154 tests, no network, no API key needed
 ```
 
 There is no GitHub Actions workflow here, deliberately: the suite runs in
@@ -194,7 +198,7 @@ app/
     errors.py            # every user-facing message, in French, in one table
     health.py            # exempt from rate limiting on purpose
     rate_limit.py        # the key function is the interesting part
-    routes/              # analyze, cv, interview_preparation, + unused CRUD
+    routes/              # analyze, cv, interview_preparation, question_bank
   services/
     cv_parse.py          # pypdf + Tesseract, no model call
     interview_preparation.py   # prompts, validation, use-case catalog

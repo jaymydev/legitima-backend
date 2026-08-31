@@ -24,3 +24,4 @@ __pycache__/
 .claude/memory/
 .claude/worktrees/
 .claude/settings.local.json
+test_payload.json

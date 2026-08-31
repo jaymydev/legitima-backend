@@ -1,0 +1,124 @@
+"""Choisir les questions à servir. Aucun appel modèle, donc instantané et gratuit.
+
+La banque est ordonnée par probabilité décroissante, et cet ordre est la donnée.
+Sélectionner revient donc à prendre les premières de chaque source, en excluant
+ce que la personne a déjà vu.
+
+Sur la fraîcheur : la consigne était « de nouvelles questions à chaque demande ».
+Une banque finie ne peut pas le tenir indéfiniment, et surtout elle ne le devrait
+pas — préparer deux fois le même entretien et se voir proposer des questions
+moins probables la seconde fois serait un mauvais service. On exclut donc ce qui
+a été vu récemment, et quand une source est épuisée on y revient plutôt que de
+rendre une page plus courte.
+"""
+
+from __future__ import annotations
+
+from dataclasses import dataclass
+
+from app.services.question_bank import (
+    ANNUEL,
+    BankEntry,
+    COMMUNES,
+    DEPLACEES,
+    EVOLUTION,
+    METIER_COMMERCE,
+    METIER_COMPTA,
+    METIER_DEV_BACK,
+    MI_ANNEE,
+    MOBILITE,
+    PERFORMANCE,
+    RECRUTEMENT,
+    SITUATIONS,
+)
+
+PAGE_SIZE = 8
+
+#: Combien d'entrées prendre à chaque source, par type d'entretien.
+#:
+#: Le type d'abord, parce que c'est ce que la personne est venue préparer. Puis
+#: les communes et les mises en situation, qui tombent partout. Les questions
+#: déplacées ne sont servies que là où elles arrivent vraiment : un entretien
+#: annuel avec son propre manager n'est pas le lieu du « vous comptez avoir des
+#: enfants ».
+PLANS: dict[str, list[tuple[str, int]]] = {
+    "recruitment": [("type", 4), ("communes", 2), ("situations", 1), ("deplacees", 1)],
+    "internal_mobility": [("type", 4), ("communes", 2), ("situations", 2)],
+    "role_evolution": [("type", 4), ("communes", 2), ("situations", 2)],
+    "annual_review": [("type", 5), ("communes", 2), ("situations", 1)],
+    "mid_year": [("type", 5), ("communes", 2), ("situations", 1)],
+    "performance_review": [("type", 5), ("communes", 2), ("situations", 1)],
+}
+
+TYPE_SOURCES: dict[str, list[BankEntry]] = {
+    "recruitment": RECRUTEMENT,
+    "internal_mobility": MOBILITE,
+    "role_evolution": EVOLUTION,
+    "annual_review": ANNUEL,
+    "mid_year": MI_ANNEE,
+    "performance_review": PERFORMANCE,
+}
+
+#: Les verticales métier ne remplacent pas le transversal, elles s'y ajoutent :
+#: un entretien technique est aussi un entretien.
+METIERS: dict[str, list[BankEntry]] = {
+    "developpement_back": METIER_DEV_BACK,
+    "commerce": METIER_COMMERCE,
+    "comptabilite": METIER_COMPTA,
+}
+
+SHARED_SOURCES: dict[str, list[BankEntry]] = {
+    "communes": COMMUNES,
+    "situations": SITUATIONS,
+    "deplacees": DEPLACEES,
+}
+
+
+@dataclass(frozen=True)
+class Selection:
+    use_case_id: str
+    entries: list[BankEntry]
+
+
+def _take(source: list[BankEntry], count: int, seen: set[str], picked: set[str]) -> list[BankEntry]:
+    fresh = [e for e in source if e.id not in seen and e.id not in picked]
+    chosen = fresh[:count]
+    if len(chosen) < count:
+        # Source épuisée par les exclusions : on y revient plutôt que de rendre
+        # une page plus courte. Une page complète vaut mieux qu'une page neuve.
+        already = [e for e in source if e.id not in picked and e not in chosen]
+        chosen += already[: count - len(chosen)]
+    picked.update(e.id for e in chosen)
+    return chosen
+
+
+def select(
+    use_case_id: str,
+    *,
+    seen: set[str] | None = None,
+    metier: str | None = None,
+) -> Selection | None:
+    plan = PLANS.get(use_case_id)
+    if plan is None:
+        return None
+
+    seen = seen or set()
+    picked: set[str] = set()
+    entries: list[BankEntry] = []
+
+    metier_source = METIERS.get(metier or "")
+    if metier_source:
+        # Le métier passe devant : c'est là que se joue un entretien technique,
+        # et c'est la moitié de la page qui n'a besoin d'aucune saisie.
+        entries += _take(metier_source, 3, seen, picked)
+
+    for source_name, count in plan:
+        source = (
+            TYPE_SOURCES[use_case_id] if source_name == "type" else SHARED_SOURCES[source_name]
+        )
+        remaining = PAGE_SIZE - len(entries)
+        if remaining <= 0:
+            break
+        entries += _take(source, min(count, remaining), seen, picked)
+
+    return Selection(use_case_id=use_case_id, entries=entries[:PAGE_SIZE])
