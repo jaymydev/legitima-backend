@@ -98,7 +98,11 @@ class PreparedInterviewRequest(BaseModel):
     #: nothing else, so seven answers out of eight stayed directives. The bullets
     #: the reduction throws away — "refonte du site X, équipe de 8" — are exactly
     #: the material the answers need.
-    cv_text: str = ""
+    #:
+    #: Bounded above what /cv/parse ever returns (MAX_RAW_TEXT_CHARACTERS): this
+    #: field goes verbatim into a token-costing prompt on an unauthenticated
+    #: route, so the honest client's cap cannot be the only one.
+    cv_text: str = Field(default="", max_length=12000)
 
 
 @dataclass(frozen=True)

@@ -62,15 +62,40 @@ def test_cv_parse_extracts_experiences_from_image_ocr(monkeypatch) -> None:
     )
 
     assert response.status_code == 200
-    assert response.json() == {
-        "experiences": [
-            {
-                "title": "PLM Engineer",
-                "company": "Confidential Program",
-                "period": "Jan 2026 - Present",
-            }
-        ]
-    }
+    payload = response.json()
+    assert payload["experiences"] == [
+        {
+            "title": "PLM Engineer",
+            "company": "Confidential Program",
+            "period": "Jan 2026 - Present",
+        }
+    ]
+    # The extracted text travels back whole: it is the material the
+    # personalised answers are built from, and the rows above are not enough.
+    assert "PLM Engineer - Confidential Program | Jan 2026 - Present" in payload["raw_text"]
+
+
+def test_bounded_raw_text_keeps_short_text_untouched() -> None:
+    assert cv_parse_service.bounded_raw_text("Développeur\nLegitima 2024") == (
+        "Développeur\nLegitima 2024"
+    )
+
+
+def test_bounded_raw_text_cuts_at_a_line_boundary() -> None:
+    text = "\n".join(f"ligne {index} avec un fait complet" for index in range(600))
+
+    bounded = cv_parse_service.bounded_raw_text(text)
+
+    assert len(bounded) <= cv_parse_service.MAX_RAW_TEXT_CHARACTERS
+    # No half line survives: every kept line is one of the originals.
+    assert all(line.startswith("ligne ") and line.endswith("complet")
+               for line in bounded.splitlines())
+
+
+def test_bounded_raw_text_without_newlines_still_bounds() -> None:
+    text = "a" * (cv_parse_service.MAX_RAW_TEXT_CHARACTERS + 500)
+
+    assert len(cv_parse_service.bounded_raw_text(text)) == cv_parse_service.MAX_RAW_TEXT_CHARACTERS
 
 
 def test_cv_parse_offloads_blocking_parser_to_threadpool(monkeypatch) -> None:
@@ -196,7 +221,7 @@ def test_cv_parse_sidebar_strategy_prevents_observed_422_to_500_regression(monke
     extracted_text = cv_parse_service._extract_text_from_image(image_bytes.getvalue())
     parsed = cv_parse_service._response_from_extracted_text(extracted_text)
 
-    assert parsed.model_dump() == {
+    assert parsed.model_dump(exclude={"raw_text"}) == {
         "experiences": [
             {
                 "title": "COORDINATRICE D'EXPLOITATION",
@@ -254,7 +279,7 @@ def test_cv_parse_extracts_structured_experience_and_excludes_other_sections() -
 
     result = cv_parse_service.parse_cv_text(text)
 
-    assert result.model_dump() == {
+    assert result.model_dump(exclude={"raw_text"}) == {
         "experiences": [
             {"title": "Développeur logiciel", "company": "AIRBUS", "period": "2024"},
             {"title": "Développeur logiciel", "company": "THALES ALENIA SPACE", "period": "2022 à 2023"},
@@ -282,7 +307,7 @@ def test_cv_parse_reads_the_singular_french_experience_heading() -> None:
         """
     )
 
-    assert result.model_dump() == {
+    assert result.model_dump(exclude={"raw_text"}) == {
         "experiences": [
             {"title": "Cheffe de projet", "company": "Capgemini", "period": "janvier 2021 - aujourd'hui"},
             {"title": "Consultante", "company": "AIRBUS", "period": "mars 2018 - décembre 2020"},
@@ -315,7 +340,7 @@ def test_cv_parse_reads_an_english_cv() -> None:
         """
     )
 
-    assert result.model_dump() == {
+    assert result.model_dump(exclude={"raw_text"}) == {
         "experiences": [
             {"title": "Senior Product Manager", "company": "Acme Corp", "period": "Jan 2021 - Present"},
             {"title": "Product Manager", "company": "Globex", "period": "Mar 2018 - Dec 2020"},
@@ -418,7 +443,7 @@ def test_cv_parse_handles_english_role_lines_without_promoting_bullets() -> None
         """
     )
 
-    assert result.model_dump() == {
+    assert result.model_dump(exclude={"raw_text"}) == {
         "experiences": [
             {
                 "title": "PLM Engineer",
@@ -464,7 +489,7 @@ def test_cv_parse_handles_reference_cv_style_experience_blocks() -> None:
         """
     )
 
-    assert result.model_dump() == {
+    assert result.model_dump(exclude={"raw_text"}) == {
         "experiences": [
             {
                 "title": "COORDINATRICE D'EXPLOITATION",
@@ -506,7 +531,7 @@ def test_cv_parse_joins_company_mission_continuation_lines() -> None:
         """
     )
 
-    assert result.model_dump() == {
+    assert result.model_dump(exclude={"raw_text"}) == {
         "experiences": [
             {
                 "title": "Consultante Senior - Transition & Team Lead",
@@ -538,7 +563,7 @@ def test_cv_parse_handles_title_company_then_period_lines_with_locations() -> No
         """
     )
 
-    assert result.model_dump() == {
+    assert result.model_dump(exclude={"raw_text"}) == {
         "experiences": [
             {
                 "title": "COORDINATRICE D'EXPLOITATION",
@@ -581,7 +606,7 @@ def test_cv_parse_cleans_ocr_noise_and_reattaches_leading_month_fragment() -> No
         """
     )
 
-    assert result.model_dump() == {
+    assert result.model_dump(exclude={"raw_text"}) == {
         "experiences": [
             {
                 "title": "COORDINATRICE D'EXPLOITATION",
@@ -623,7 +648,7 @@ def test_cv_parse_reattaches_split_month_fragment_from_period_line() -> None:
         """
     )
 
-    assert result.model_dump() == {
+    assert result.model_dump(exclude={"raw_text"}) == {
         "experiences": [
             {
                 "title": "EMPLOYÉE ADMINISTRATIVE",
@@ -647,7 +672,7 @@ def test_cv_parse_sorts_experiences_by_recency_instead_of_ocr_order() -> None:
         """
     )
 
-    assert result.model_dump() == {
+    assert result.model_dump(exclude={"raw_text"}) == {
         "experiences": [
             {
                 "title": "TECHNICIENNE DE PAIE",
@@ -684,7 +709,7 @@ def test_cv_parse_keeps_only_five_most_recent_experiences() -> None:
         """
     )
 
-    assert result.model_dump() == {
+    assert result.model_dump(exclude={"raw_text"}) == {
         "experiences": [
             {"title": "EXP F", "company": "SOCIETE F", "period": "2020 - 2021"},
             {"title": "EXP E", "company": "SOCIETE E", "period": "2018 - 2019"},
