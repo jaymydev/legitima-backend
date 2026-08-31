@@ -20,7 +20,9 @@ client = TestClient(app)
 ALL_GROUPS = [
     bank.COMMUNES, bank.SITUATIONS, bank.DEPLACEES, bank.ETAPES, bank.RECRUTEMENT,
     bank.MOBILITE, bank.EVOLUTION, bank.ANNUEL, bank.MI_ANNEE, bank.PERFORMANCE,
-    bank.METIER_DEV_BACK, bank.METIER_COMMERCE, bank.METIER_COMPTA,
+    bank.METIER_DEV_BACK, bank.METIER_DEV_FRONT, bank.METIER_DATA, bank.METIER_OPS,
+    bank.METIER_CYBER, bank.METIER_COMMERCE, bank.METIER_COMPTA, bank.METIER_RH,
+    bank.METIER_MARKETING, bank.METIER_LOGISTIQUE,
 ]
 ALL_ENTRIES = [entry for group in ALL_GROUPS for entry in group]
 
@@ -39,7 +41,7 @@ KNOWN_SLOTS = {
 
 
 def test_the_bank_holds_what_was_written() -> None:
-    assert len(ALL_ENTRIES) == 194
+    assert len(ALL_ENTRIES) == 300
     assert len({entry.id for entry in ALL_ENTRIES}) == len(ALL_ENTRIES)
 
 
@@ -115,12 +117,57 @@ def test_an_exhausted_bank_still_serves_a_full_page() -> None:
     assert len(page.entries) == selection.PAGE_SIZE
 
 
-def test_a_metier_takes_the_front_of_the_page() -> None:
-    page = selection.select("recruitment", metier="developpement_back")
-    technical = {entry.id for entry in bank.METIER_DEV_BACK}
+@pytest.mark.parametrize("metier", sorted(selection.METIERS))
+def test_every_metier_takes_the_front_of_the_page(metier: str) -> None:
+    page = selection.select("recruitment", metier=metier)
+    technical = {entry.id for entry in selection.METIERS[metier]}
 
     assert sum(1 for entry in page.entries[:3] if entry.id in technical) == 3
     assert len(page.entries) == selection.PAGE_SIZE
+
+
+@pytest.mark.parametrize("metier", sorted(selection.METIERS))
+def test_every_metier_has_a_label_and_enough_entries(metier: str) -> None:
+    """Une verticale servie sans libellé serait un slug à l'écran."""
+    assert selection.METIER_LABELS[metier]
+    assert len(selection.METIERS[metier]) >= 15
+
+
+def test_the_metier_catalog_serves_labels() -> None:
+    response = client.get("/v3/interview/metiers")
+
+    assert response.status_code == 200
+    payload = response.json()
+    assert sorted(payload["metiers"]) == sorted(selection.METIERS)
+    assert {"id": "cybersecurite", "label": "Cybersécurité"} in payload["catalog"]
+
+
+def test_management_only_entries_stay_in_the_drawer() -> None:
+    """« Un membre de votre équipe décroche » ne va qu'à qui a une équipe.
+
+    Servie à quelqu'un qui n'encadre pas, l'entrée prépare à un entretien qui
+    n'existe pas — et elle occupait une place qu'une question probable méritait.
+    """
+    management_ids = {entry.id for entry in ALL_ENTRIES if entry.encadrement}
+    assert management_ids, "le tableur signalait des entrées encadrement : elles doivent être marquées"
+
+    for use_case_id in sorted(selection.PLANS):
+        page = selection.select(use_case_id)
+        assert not ({e.id for e in page.entries} & management_ids)
+
+    # Qui encadre les retrouve — même une fois toute la banque vue, le
+    # rattrapage de page complète ne doit pas les faire fuiter chez les autres.
+    exhausted = selection.select("recruitment", seen={entry.id for entry in ALL_ENTRIES})
+    assert not ({e.id for e in exhausted.entries} & management_ids)
+    with_team = selection.select("recruitment", seen=set(), encadrement=True)
+    assert len(with_team.entries) == selection.PAGE_SIZE
+
+
+def test_the_route_accepts_the_encadrement_flag() -> None:
+    response = client.get("/v3/interview/bank?use_case_id=recruitment&encadrement=true")
+
+    assert response.status_code == 200
+    assert len(response.json()["questions"]) == selection.PAGE_SIZE
 
 
 def test_an_annual_review_is_never_asked_about_children() -> None:

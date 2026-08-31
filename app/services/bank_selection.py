@@ -24,7 +24,14 @@ from app.services.question_bank import (
     EVOLUTION,
     METIER_COMMERCE,
     METIER_COMPTA,
+    METIER_CYBER,
+    METIER_DATA,
     METIER_DEV_BACK,
+    METIER_DEV_FRONT,
+    METIER_LOGISTIQUE,
+    METIER_MARKETING,
+    METIER_OPS,
+    METIER_RH,
     MI_ANNEE,
     MOBILITE,
     PERFORMANCE,
@@ -63,8 +70,31 @@ TYPE_SOURCES: dict[str, list[BankEntry]] = {
 #: un entretien technique est aussi un entretien.
 METIERS: dict[str, list[BankEntry]] = {
     "developpement_back": METIER_DEV_BACK,
+    "developpement_front": METIER_DEV_FRONT,
+    "data": METIER_DATA,
+    "ops": METIER_OPS,
+    "cybersecurite": METIER_CYBER,
     "commerce": METIER_COMMERCE,
     "comptabilite": METIER_COMPTA,
+    "ressources_humaines": METIER_RH,
+    "marketing": METIER_MARKETING,
+    "logistique": METIER_LOGISTIQUE,
+}
+
+#: Ce que l'app affiche pour chaque verticale. Servi par le catalogue plutôt
+#: que codé côté client : une verticale ajoutée ici apparaît dans l'app sans
+#: nouvelle version.
+METIER_LABELS: dict[str, str] = {
+    "developpement_back": "Développement back-end",
+    "developpement_front": "Développement front-end",
+    "data": "Data",
+    "ops": "Ops / infrastructure",
+    "cybersecurite": "Cybersécurité",
+    "commerce": "Commerce / vente",
+    "comptabilite": "Comptabilité",
+    "ressources_humaines": "Ressources humaines",
+    "marketing": "Marketing",
+    "logistique": "Logistique",
 }
 
 SHARED_SOURCES: dict[str, list[BankEntry]] = {
@@ -97,6 +127,7 @@ def select(
     *,
     seen: set[str] | None = None,
     metier: str | None = None,
+    encadrement: bool = False,
 ) -> Selection | None:
     plan = PLANS.get(use_case_id)
     if plan is None:
@@ -106,11 +137,17 @@ def select(
     picked: set[str] = set()
     entries: list[BankEntry] = []
 
+    def usable(source: list[BankEntry]) -> list[BankEntry]:
+        # « Un membre de votre équipe décroche » servi à quelqu'un qui n'a pas
+        # d'équipe le prépare à un entretien qui n'existe pas. Tant que rien ne
+        # dit que la personne encadre, ces entrées restent au tiroir.
+        return source if encadrement else [e for e in source if not e.encadrement]
+
     metier_source = METIERS.get(metier or "")
     if metier_source:
         # Le métier passe devant : c'est là que se joue un entretien technique,
         # et c'est la moitié de la page qui n'a besoin d'aucune saisie.
-        entries += _take(metier_source, 3, seen, picked)
+        entries += _take(usable(metier_source), 3, seen, picked)
 
     for source_name, count in plan:
         source = (
@@ -119,6 +156,6 @@ def select(
         remaining = PAGE_SIZE - len(entries)
         if remaining <= 0:
             break
-        entries += _take(source, min(count, remaining), seen, picked)
+        entries += _take(usable(source), min(count, remaining), seen, picked)
 
     return Selection(use_case_id=use_case_id, entries=entries[:PAGE_SIZE])

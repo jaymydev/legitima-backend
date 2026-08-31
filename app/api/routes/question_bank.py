@@ -6,7 +6,7 @@ from pydantic import BaseModel
 
 from app.api.errors import UNKNOWN_USE_CASE, user_facing_error
 from app.observability.logging import logger
-from app.services.bank_selection import METIERS, PAGE_SIZE, select
+from app.services.bank_selection import METIER_LABELS, METIERS, PAGE_SIZE, select
 from app.services.question_bank import ACTION_PLANS
 
 router = APIRouter(prefix="/v3/interview", tags=["Question bank V3"])
@@ -37,6 +37,7 @@ def get_bank_page(
     response: Response,
     use_case_id: str,
     metier: str = "",
+    encadrement: bool = False,
     seen: str = Query("", description="Identifiants déjà servis, séparés par des virgules"),
 ) -> BankPage:
     """Les questions à préparer, prises dans la banque écrite à la main.
@@ -56,7 +57,7 @@ def get_bank_page(
     if len(seen_ids) > MAX_SEEN:
         seen_ids = set(list(seen_ids)[:MAX_SEEN])
 
-    selection = select(use_case_id, seen=seen_ids, metier=metier or None)
+    selection = select(use_case_id, seen=seen_ids, metier=metier or None, encadrement=encadrement)
     if selection is None:
         raise user_facing_error(UNKNOWN_USE_CASE)
 
@@ -74,10 +75,24 @@ def get_bank_page(
     )
 
 
+class MetierChoice(BaseModel):
+    id: str
+    label: str
+
+
 class MetierCatalog(BaseModel):
     metiers: list[str]
+    #: La même liste, avec ce que l'app affiche. `metiers` reste pour les
+    #: clients qui ne lisent que les identifiants.
+    catalog: list[MetierChoice] = []
 
 
 @router.get("/metiers", response_model=MetierCatalog)
 def get_metiers() -> MetierCatalog:
-    return MetierCatalog(metiers=sorted(METIERS))
+    return MetierCatalog(
+        metiers=sorted(METIERS),
+        catalog=[
+            MetierChoice(id=metier_id, label=METIER_LABELS.get(metier_id, metier_id))
+            for metier_id in sorted(METIERS)
+        ],
+    )
