@@ -6,7 +6,13 @@ from pydantic import BaseModel
 
 from app.api.errors import UNKNOWN_USE_CASE, user_facing_error
 from app.observability.logging import logger
-from app.services.bank_selection import METIER_LABELS, METIERS, PAGE_SIZE, select
+from app.services.bank_selection import (
+    METIER_LABELS,
+    METIERS,
+    PAGE_SIZE,
+    TYPES_EVALUATION,
+    select,
+)
 from app.services.question_bank import ACTION_PLANS
 
 router = APIRouter(prefix="/v3/interview", tags=["Question bank V3"])
@@ -85,6 +91,11 @@ class MetierCatalog(BaseModel):
     #: La même liste, avec ce que l'app affiche. `metiers` reste pour les
     #: clients qui ne lisent que les identifiants.
     catalog: list[MetierChoice] = []
+    #: Les types d'entretien où choisir un métier change quelque chose. C'est
+    #: au serveur de le dire : il détient la banque, et l'app n'a pas à
+    #: redevenir la source de vérité sur son contenu. Champ additionnel — un
+    #: client qui l'ignore se comporte comme avant.
+    applies_to: list[str] = []
 
 
 @router.get("/metiers", response_model=MetierCatalog)
@@ -95,4 +106,5 @@ def get_metiers() -> MetierCatalog:
             MetierChoice(id=metier_id, label=METIER_LABELS.get(metier_id, metier_id))
             for metier_id in sorted(METIERS)
         ],
+        applies_to=sorted(TYPES_EVALUATION),
     )

@@ -261,3 +261,39 @@ def test_an_unknown_type_is_refused() -> None:
 
     assert response.status_code == 404
     assert response.json()["code"] == errors.UNKNOWN_USE_CASE
+
+
+def test_a_review_is_not_a_technical_screening() -> None:
+    """« Vendez-moi ce stylo » n'a rien à faire dans un entretien annuel.
+
+    Les questions métier sont écrites pour évaluer une compétence en vue d'un
+    poste. Servies dans un bilan — avec quelqu'un qui a suivi le travail toute
+    l'année — elles prenaient les trois premières places d'une page de huit
+    sans qu'aucune ait la moindre chance d'être posée.
+    """
+    bilans = set(selection.PLANS) - selection.TYPES_EVALUATION
+    assert bilans == {"annual_review", "mid_year", "performance_review"}
+
+    for use_case_id in sorted(bilans):
+        for metier, source in selection.METIERS.items():
+            page = selection.select(use_case_id, metier=metier)
+            assert not ({e.id for e in page.entries} & {e.id for e in source}), (
+                f"{use_case_id} : le métier {metier} s'invite dans un bilan"
+            )
+            assert len(page.entries) == selection.PAGE_SIZE
+
+    # Là où une compétence est évaluée, la promesse des trois en tête tient.
+    for use_case_id in sorted(selection.TYPES_EVALUATION):
+        for metier, source in selection.METIERS.items():
+            head = selection.select(use_case_id, metier=metier).entries[:3]
+            assert all(e.id in {x.id for x in source} for e in head), (
+                f"{use_case_id} + {metier} : la tête n'est plus au métier"
+            )
+
+
+def test_the_catalog_says_where_a_metier_applies() -> None:
+    """L'app ne doit pas redeviner ce que le serveur sait déjà."""
+    payload = client.get("/v3/interview/metiers").json()
+
+    assert payload["applies_to"] == sorted(selection.TYPES_EVALUATION)
+    assert set(payload["applies_to"]) <= set(selection.PLANS)

@@ -163,7 +163,7 @@ instant, costs nothing, and is useful to someone who typed nothing at all.
 
 Query parameters: `use_case_id` (required, one of the six types),
 `metier` (optional vertical — see `GET /v3/interview/metiers` for the current
-list and display labels), `encadrement` (optional, default `false`: a few
+list, display labels, and the interview types it applies to), `encadrement` (optional, default `false`: a few
 entries — "un membre de votre équipe décroche" — only make sense for someone
 who manages people, and are kept in the drawer unless the client says so.
 When it is set, at least one of them is on every page: they move to the head
@@ -195,6 +195,14 @@ read as-is with five minutes and a corridor: one to three gestures, no slots.
 When a personalised preparation exists, its own `action_plan` — more specific —
 replaces this one on the client. An unknown `use_case_id` answers `404`
 `unknown_use_case`.
+
+A `metier` is honoured only for the three interviews that assess a skill for a
+role — `recruitment`, `internal_mobility`, `role_evolution` — and is ignored for
+the three reviews. The vertical questions are written to screen ("vendez-moi ce
+stylo", "qu'est-ce que le cut-off"); in a review, with someone who has watched
+the work all year, none of them would be asked, and they were taking the first
+three slots of a page of eight. `GET /v3/interview/metiers` names the types
+where it applies, so the client never has to hardcode that list.
 
 ### `GET /v3/interview/use-cases`
 

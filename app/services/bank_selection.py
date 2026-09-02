@@ -66,6 +66,16 @@ TYPE_SOURCES: dict[str, list[BankEntry]] = {
     "performance_review": PERFORMANCE,
 }
 
+#: Les entretiens où une verticale a un sens : ceux qui évaluent une compétence
+#: pour un poste. Les questions métier sont écrites pour ça — « vendez-moi ce
+#: stylo », « qu'est-ce que le cut-off » — et elles ne se posent pas quand on
+#: fait le bilan d'un travail déjà fait, avec quelqu'un qui l'a suivi toute
+#: l'année. Les servir là occupait les trois premières places d'une page de huit
+#: avec des questions de probabilité nulle, en évinçant « parlez-moi de vous ».
+TYPES_EVALUATION: frozenset[str] = frozenset(
+    {"recruitment", "internal_mobility", "role_evolution"}
+)
+
 #: Les verticales métier ne remplacent pas le transversal, elles s'y ajoutent :
 #: un entretien technique est aussi un entretien.
 METIERS: dict[str, list[BankEntry]] = {
@@ -153,7 +163,7 @@ def select(
         # il est seulement relatif à qui demande.
         return [e for e in source if e.encadrement] + [e for e in source if not e.encadrement]
 
-    metier_source = METIERS.get(metier or "")
+    metier_source = METIERS.get(metier or "") if use_case_id in TYPES_EVALUATION else None
     if metier_source:
         # Le métier passe devant : c'est là que se joue un entretien technique,
         # et c'est la moitié de la page qui n'a besoin d'aucune saisie.
