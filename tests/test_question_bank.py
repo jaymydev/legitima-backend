@@ -163,6 +163,50 @@ def test_management_only_entries_stay_in_the_drawer() -> None:
     assert len(with_team.entries) == selection.PAGE_SIZE
 
 
+def test_declaring_a_team_actually_brings_a_team_question() -> None:
+    """L'interrupteur doit ajouter quelque chose, pas seulement ouvrir le tiroir.
+
+    Ce test manquait, et c'est ce qui a laissé passer le défaut : on vérifiait
+    que la page faisait bien huit entrées, jamais qu'une question d'encadrement
+    y figurait. Elle n'y figurait pas — la première est septième des situations,
+    dont un plan ne prend qu'une ou deux.
+    """
+    management_ids = {entry.id for entry in ALL_ENTRIES if entry.encadrement}
+
+    for use_case_id in sorted(selection.PLANS):
+        page = selection.select(use_case_id, encadrement=True)
+        assert {e.id for e in page.entries} & management_ids, (
+            f"{use_case_id} : « j'encadre une équipe » n'ajoute aucune question"
+        )
+        assert len(page.entries) == selection.PAGE_SIZE
+
+    # Le métier consomme trois places en tête : la promesse doit tenir quand
+    # même, et sans lui prendre les siennes.
+    for use_case_id in sorted(selection.PLANS):
+        for metier in selection.METIERS:
+            page = selection.select(use_case_id, metier=metier, encadrement=True)
+            ids = [e.id for e in page.entries]
+            assert set(ids) & management_ids, (
+                f"{use_case_id} + {metier} : la question d'équipe a disparu"
+            )
+            assert len(page.entries) == selection.PAGE_SIZE
+            assert len(set(ids)) == len(ids), "une entrée servie deux fois"
+            assert sum(1 for e in page.entries[:3] if e.encadrement) == 0, (
+                "la tête reste au métier"
+            )
+
+
+def test_a_team_question_survives_having_seen_the_first_one() -> None:
+    """Deuxième préparation : la suivante remonte, on ne retombe pas au tiroir."""
+    management = [entry for entry in ALL_ENTRIES if entry.encadrement]
+    first = selection.select("recruitment", encadrement=True)
+    served = {e.id for e in first.entries} & {e.id for e in management}
+
+    again = selection.select("recruitment", seen=served, encadrement=True)
+    still = {e.id for e in again.entries} & {e.id for e in management}
+    assert still and not (still & served)
+
+
 def test_the_route_accepts_the_encadrement_flag() -> None:
     response = client.get("/v3/interview/bank?use_case_id=recruitment&encadrement=true")
 

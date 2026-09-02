@@ -141,7 +141,17 @@ def select(
         # « Un membre de votre équipe décroche » servi à quelqu'un qui n'a pas
         # d'équipe le prépare à un entretien qui n'existe pas. Tant que rien ne
         # dit que la personne encadre, ces entrées restent au tiroir.
-        return source if encadrement else [e for e in source if not e.encadrement]
+        if not encadrement:
+            return [e for e in source if not e.encadrement]
+
+        # Les sortir du tiroir ne suffisait pas : leur rang d'origine est écrit
+        # pour quelqu'un qui n'a pas d'équipe, et il les plaçait hors de portée
+        # d'une page — la première est septième des situations, dont on ne prend
+        # qu'une ou deux. L'interrupteur promettait donc des questions que
+        # personne ne voyait. Pour qui encadre, elles ne sont pas un supplément :
+        # ce sont les plus probables de leur catégorie. L'ordre reste la donnée,
+        # il est seulement relatif à qui demande.
+        return [e for e in source if e.encadrement] + [e for e in source if not e.encadrement]
 
     metier_source = METIERS.get(metier or "")
     if metier_source:
@@ -158,4 +168,16 @@ def select(
             break
         entries += _take(usable(source), min(count, remaining), seen, picked)
 
-    return Selection(use_case_id=use_case_id, entries=entries[:PAGE_SIZE])
+    entries = entries[:PAGE_SIZE]
+
+    if encadrement and not any(e.encadrement for e in entries):
+        # La promesse de l'interrupteur ne souffre pas d'exception, or un métier
+        # consomme trois places en tête et la page se remplit avant d'atteindre
+        # les situations : un chef d'équipe qui renseignait sa spécialité
+        # n'obtenait toujours rien. On lui garde la dernière place — la tête
+        # reste au métier, qui l'a promise lui aussi.
+        team = _take([e for e in SITUATIONS if e.encadrement], 1, seen, picked)
+        if team:
+            entries[-1] = team[0]
+
+    return Selection(use_case_id=use_case_id, entries=entries)

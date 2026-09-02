@@ -165,7 +165,11 @@ Query parameters: `use_case_id` (required, one of the six types),
 `metier` (optional vertical — see `GET /v3/interview/metiers` for the current
 list and display labels), `encadrement` (optional, default `false`: a few
 entries — "un membre de votre équipe décroche" — only make sense for someone
-who manages people, and are kept in the drawer unless the client says so),
+who manages people, and are kept in the drawer unless the client says so.
+When it is set, at least one of them is on every page: they move to the head
+of their category, because for someone who manages they are the likeliest of
+it, and the last slot is reserved for one when a `metier` fills the page
+first),
 `seen` (comma-separated ids already served, capped at 200; recently seen
 questions are excluded so a second preparation brings new ones).
 
