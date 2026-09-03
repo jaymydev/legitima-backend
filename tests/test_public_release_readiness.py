@@ -167,7 +167,7 @@ def test_the_refusal_body_says_only_that_a_limit_was_hit() -> None:
     }
 
     refused = None
-    for _ in range(13):
+    for _ in range(33):
         response = client.post(
             "/v2/interview-preparation/kickoff", json=body, headers=headers
         )
@@ -176,7 +176,7 @@ def test_the_refusal_body_says_only_that_a_limit_was_hit() -> None:
             break
 
     assert refused is not None, "the kickoff limit never fired"
-    assert refused.json() == {"error": "Rate limit exceeded: 10 per 1 hour"}
+    assert refused.json() == {"error": "Rate limit exceeded: 30 per 1 hour"}
     assert refused.headers.get("retry-after")
 
 
@@ -240,9 +240,9 @@ def test_the_limits_are_the_documented_ones() -> None:
     """These numbers are published in docs/api-contract.md and README.md.
     Changing one without the other leaves the contract lying."""
     contract = (REPO_ROOT / "docs" / "api-contract.md").read_text(encoding="utf-8")
-    assert rate_limit.AI_GENERATION_LIMIT == "10/hour"
+    assert rate_limit.AI_GENERATION_LIMIT == "30/hour"
     assert rate_limit.CV_PARSE_LIMIT == "20/hour"
     assert rate_limit.DEFAULT_LIMIT == "120/hour"
-    assert "10 / hour" in contract
+    assert "30 / hour" in contract
     assert "20 / hour" in contract
     assert "120 / hour" in contract

@@ -161,7 +161,7 @@ def test_health_is_never_counted() -> None:
         assert client.get("/health", headers=headers).status_code == 200
 
 
-def test_analyze_refuses_the_eleventh_call_from_one_address(
+def test_analyze_refuses_the_call_past_the_budget_from_one_address(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
     """End-to-end on the real app, which registers a catch-all `Exception`
@@ -190,7 +190,7 @@ def test_analyze_refuses_the_eleventh_call_from_one_address(
 
     # 500 here means the handler ran and was counted: the missing API key is
     # rejected inside the route, past the limiter.
-    for _ in range(10):
+    for _ in range(_hourly_budget(rate_limit.AI_GENERATION_LIMIT)):
         assert client.post("/analyze", json=body, headers=headers).status_code == 500
 
     refused = client.post("/analyze", json=body, headers=headers)
@@ -208,7 +208,7 @@ def test_analyze_refuses_the_eleventh_call_from_one_address(
 def test_the_expensive_routes_declare_a_limit() -> None:
     """A new AI endpoint added without a decorator still falls under the
     blanket default, but these four are the ones that cost tokens."""
-    assert rate_limit.AI_GENERATION_LIMIT == "10/hour"
+    assert rate_limit.AI_GENERATION_LIMIT == "30/hour"
     assert rate_limit.CV_PARSE_LIMIT == "20/hour"
     assert rate_limit.DEFAULT_LIMIT == "120/hour"
 
@@ -232,3 +232,52 @@ def test_the_expensive_routes_declare_a_limit() -> None:
         "/v2/interview-preparation/kickoff",
     ):
         assert path in limited, f"{path} lost its rate limit"
+
+
+def _hourly_budget(limit: str) -> int:
+    """The count out of a `limits` string such as `30/hour`.
+
+    Derived rather than written twice, so a test cannot keep asserting a
+    budget the module no longer grants.
+    """
+    return int(limit.split("/", 1)[0])
+
+
+def test_the_route_the_app_uses_is_rate_limited(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """`/v3/interview/questions` is the only limited route with a live client.
+
+    A dropped decorator is already caught, by
+    `test_every_handler_that_calls_openai_declares_an_explicit_limit`, which
+    reads the source. What reading the source cannot show is whether the limit
+    *fires*: that also needs slowapi's wrapper to run, the catch-all
+    `Exception` handler not to swallow the refusal into a 500 — retry now —
+    instead of a 429, and `Retry-After` to be emitted, which the app reads to
+    tell someone how long the wait is. The only end-to-end check of that kind
+    ran against `/analyze`, a route with no client left.
+
+    The budget is read from the constant, so this exercises whatever the
+    module currently grants rather than a number copied here once.
+    """
+    from app.main import app
+    from app.services import interview_questions as service
+
+    # No key: the handler stops before OpenAI, so this needs no network. It
+    # still reaches the handler, which is what being counted requires.
+    monkeypatch.delenv("OPENAI_API_KEY", raising=False)
+    client = TestClient(app)
+    headers = {"X-Forwarded-For": "203.0.113.31"}
+    body = {
+        "use_case_id": "performance_review",
+        "questionnaire_version": service.QUESTIONS_VERSION,
+    }
+
+    budget = _hourly_budget(rate_limit.AI_GENERATION_LIMIT)
+    for index in range(budget):
+        spent = client.post("/v3/interview/questions", json=body, headers=headers)
+        assert spent.status_code != 429, f"refused at call {index + 1} of {budget}"
+
+    refused = client.post("/v3/interview/questions", json=body, headers=headers)
+    assert refused.status_code == 429, "the route's own limit never fired"
+    assert refused.headers.get("retry-after")
