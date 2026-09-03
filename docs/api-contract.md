@@ -209,6 +209,13 @@ where it applies, so the client never has to hardcode that list.
 Six types, questionnaire version `2.1`. There is no "not sure yet" entry: someone
 who cannot name their interview is not who this is for.
 
+Each use case carries `accepts_cv`: whether attaching a CV changes anything for
+that interview. It is `true` for `recruitment` and `internal_mobility` only —
+elsewhere the generation drops the CV before the prompt, because a review is not
+a candidacy and the person across the table has watched the work all year. The
+field is derived from the same constant that gates the prompt, so the two cannot
+drift, and it is published so no client transmits a CV that would be discarded.
+
 ### `POST /v3/interview/questions`
 
 Rate limited to 10/hour — it spends tokens.

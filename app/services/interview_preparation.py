@@ -33,6 +33,12 @@ class InterviewUseCase(BaseModel):
     description: str
     questionnaire_version: str
     questions: list[InterviewQuestion]
+    #: Whether attaching a CV changes anything for this interview. Derived from
+    #: `experience_limit`, which is what actually gates the prompt — so the two
+    #: cannot drift. Published so the client hides an attachment that would be
+    #: transmitted and then dropped: a review is not a candidacy, and someone's
+    #: career has no business crossing the Atlantic to be thrown away.
+    accepts_cv: bool = False
 
 
 class InterviewAnswer(BaseModel):
