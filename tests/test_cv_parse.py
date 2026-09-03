@@ -756,3 +756,25 @@ def test_cv_parse_rejects_oversized_files() -> None:
     )
 
     assert response.status_code == 413
+
+
+def test_the_raw_text_ceiling_is_quoted_by_the_privacy_policy() -> None:
+    """6 000 caractères : ce nombre est écrit dans un document juridique.
+
+    La politique de confidentialité du dépôt iOS annonce que le texte extrait
+    d'un CV est « borné à 6 000 caractères ». C'est une garantie offerte à la
+    personne, pas un détail d'implémentation : la baisser tromperait moins,
+    mais la monter rendrait la politique fausse en silence — et une politique
+    fausse se découvre au pire moment.
+
+    Changer cette constante suppose donc de mettre à jour
+    `docs/privacy-policy.md` dans legitima-frontend, section 4.
+    """
+    from app.services.cv_parse import MAX_RAW_TEXT_CHARACTERS, bounded_raw_text
+
+    assert MAX_RAW_TEXT_CHARACTERS == 6000
+
+    # Et la borne s'applique vraiment : un texte plus long est coupé.
+    trop_long = "ligne de CV\n" * 2000
+    assert len(trop_long) > MAX_RAW_TEXT_CHARACTERS
+    assert len(bounded_raw_text(trop_long)) <= MAX_RAW_TEXT_CHARACTERS

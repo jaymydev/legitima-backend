@@ -437,6 +437,11 @@ def _run_ocr_attempts(
 #: A résumé runs one to two pages, three to four thousand characters. The bound
 #: exists for the other documents people upload by mistake — a fifty-page PDF
 #: must not travel back to the phone, nor later into a token-costing prompt.
+#:
+#: **This number is quoted in the privacy policy** (legitima-frontend,
+#: `docs/privacy-policy.md`, section 4): the text extracted from a CV is
+#: announced as bounded to 6 000 characters. Raising it would make that
+#: promise false in silence, so a test pins it — change both or neither.
 MAX_RAW_TEXT_CHARACTERS = 6000
 
 
