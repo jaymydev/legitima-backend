@@ -62,9 +62,9 @@ These were decided, not stumbled into. Re-open them with a reason.
 - **Management entries stay in the drawer** until the client says the person
   leads a team — and when it does, they move to the head of their source,
   because for that person they are the likeliest of their category.
-- **The word "objection" is banned**: the recruiter is not an opponent. No
-  entry of the 300 contains it. A test enforces this on the action plans —
-  extending it to the entries themselves would close a real gap.
+- **The word "objection" is banned**: the recruiter is not an opponent. A test
+  enforces it across everything the person reads — the four text fields of all
+  300 entries, and the action plans.
 - **`POST /analyze` and the `v2` routes stay mounted** for TestFlight builds
   that still call them. No current client uses them. Removing them before those
   builds are replaced would break testers.

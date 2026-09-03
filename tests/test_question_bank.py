@@ -91,6 +91,38 @@ def test_every_type_has_a_plan_before_entering(use_case_id: str) -> None:
         assert "objection" not in gesture.lower()
 
 
+def test_the_recruiter_is_never_called_an_opponent() -> None:
+    """Le mot « objection » est banni de tout ce que la personne lit.
+
+    Un entretien n'est pas un duel. Nommer « objection » ce que l'autre
+    demande installe une posture de défense, et quelqu'un qui se défend
+    surjoue — c'est précisément ce que la banque cherche à désamorcer.
+
+    Le test couvrait les plans d'action seulement. Il couvre désormais les
+    300 entrées, champ par champ : question, réponse, relance et conseil.
+    La règle vaut pour tout ce qui s'affiche, pas pour l'endroit où le
+    contenu a été ajouté.
+
+    « Objectif » ne déclenche rien : la sous-chaîne cherchée est bien
+    « objection », et les banques annuelles en sont pleines.
+    """
+    lisible = [
+        (entry.id, champ, getattr(entry, champ, "") or "")
+        for entry in ALL_ENTRIES
+        for champ in ("question", "answer", "follow_up", "avoid")
+    ]
+    fautifs = [
+        f"{entry_id}.{champ}" for entry_id, champ, texte in lisible if "objection" in texte.lower()
+    ]
+    assert not fautifs, f"« objection » interdit, trouvé dans : {fautifs}"
+
+    # Les plans passent par le même filet : la règle ne doit pas dépendre du
+    # test qui vérifie par ailleurs leur longueur et leurs balises.
+    for use_case_id, plan in bank.ACTION_PLANS.items():
+        for gesture in plan:
+            assert "objection" not in gesture.lower(), use_case_id
+
+
 def test_the_route_serves_the_plan_with_the_page() -> None:
     response = client.get("/v3/interview/bank?use_case_id=recruitment")
 
