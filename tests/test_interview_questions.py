@@ -330,3 +330,37 @@ def test_anything_that_asserts_gets_verified(answer: str, kind: str, checked: bo
         question="Q ?", intent="I.", answer=answer, kind=kind
     )
     assert service.needs_grounding(question) is checked
+
+
+def test_the_catalog_says_where_a_cv_changes_anything() -> None:
+    """Un CV transmis puis jeté est une donnée personnelle envoyée pour rien.
+
+    `experience_limit` décide déjà, côté prompt : à zéro, le texte du CV et les
+    expériences sont écartés avant la génération. Le client n'avait aucun moyen
+    de le savoir, proposait la pièce jointe partout et l'activait par défaut —
+    le parcours de la personne traversait l'Atlantique pour finir à la
+    poubelle. Le catalogue le publie donc.
+    """
+    from app.services.interview_questions import USE_CASES, list_use_cases
+
+    catalogue = {use_case.id: use_case for use_case in list_use_cases()}
+
+    assert set(catalogue) == set(USE_CASES)
+    for use_case_id, definition in USE_CASES.items():
+        assert catalogue[use_case_id].accepts_cv == bool(definition.experience_limit), use_case_id
+
+    # Un bilan n'est pas une candidature : en face, quelqu'un qui a suivi le
+    # travail toute l'année et à qui un CV n'apprend rien.
+    assert catalogue["recruitment"].accepts_cv
+    assert catalogue["internal_mobility"].accepts_cv
+    for use_case_id in ("role_evolution", "annual_review", "mid_year", "performance_review"):
+        assert not catalogue[use_case_id].accepts_cv, use_case_id
+
+
+def test_the_route_publishes_accepts_cv() -> None:
+    response = client.get("/v3/interview/use-cases")
+
+    assert response.status_code == 200
+    servis = {u["id"]: u["accepts_cv"] for u in response.json()["use_cases"]}
+    assert servis["recruitment"] is True
+    assert servis["annual_review"] is False

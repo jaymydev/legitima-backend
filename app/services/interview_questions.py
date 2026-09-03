@@ -282,7 +282,13 @@ USE_CASES: dict[str, UseCaseDefinition] = {
 
 
 def list_use_cases() -> list[InterviewUseCase]:
-    return [definition.catalog for definition in USE_CASES.values()]
+    # `accepts_cv` est dérivé, jamais saisi : c'est `experience_limit` qui
+    # décide vraiment, et deux constantes à tenir en accord finissent toujours
+    # par diverger.
+    return [
+        definition.catalog.model_copy(update={"accepts_cv": bool(definition.experience_limit)})
+        for definition in USE_CASES.values()
+    ]
 
 
 def get_use_case(use_case_id: str) -> UseCaseDefinition | None:
