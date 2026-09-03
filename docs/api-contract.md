@@ -40,10 +40,10 @@ monthly spend cap on the OpenAI account, not this limit.
 
 | Scope | Limit |
 | --- | --- |
-| `POST /analyze` | 10 / hour |
-| `POST /v2/interview-preparation/analyze` | 10 / hour |
-| `POST /v2/interview-preparation/kickoff` | 10 / hour |
-| `POST /v3/interview/questions` | 10 / hour |
+| `POST /analyze` | 30 / hour |
+| `POST /v2/interview-preparation/analyze` | 30 / hour |
+| `POST /v2/interview-preparation/kickoff` | 30 / hour |
+| `POST /v3/interview/questions` | 30 / hour |
 | `POST /cv/parse` | 20 / hour |
 | every other route | 120 / hour |
 | `GET /health` | not counted |
@@ -57,10 +57,17 @@ routes that cost money are reached only by well-formed requests, which are
 counted. Testing a per-route limit therefore needs a request the handler
 actually accepts.
 
+Being well-formed is not the same as being accepted. The counter is spent
+before the handler runs, so a request the handler then rejects — an unknown
+`use_case_id`, a payload the use case refuses, a missing server API key — is
+counted despite spending no tokens. A `curl` probe against
+`/v3/interview/questions` with a made-up `use_case_id` reads the deploy at the
+price of one generation; it is not free.
+
 Exceeding a limit returns `429` with a `Retry-After` header in seconds and:
 
 ```json
-{ "error": "Rate limit exceeded: 10 per 1 hour" }
+{ "error": "Rate limit exceeded: 30 per 1 hour" }
 ```
 
 Successful responses carry `X-RateLimit-Limit`, `X-RateLimit-Remaining` and
@@ -218,7 +225,7 @@ drift, and it is published so no client transmits a CV that would be discarded.
 
 ### `POST /v3/interview/questions`
 
-Rate limited to 10/hour — it spends tokens.
+Rate limited to 30/hour — it spends tokens.
 
 ```json
 {

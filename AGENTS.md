@@ -77,7 +77,7 @@ These were decided, not stumbled into. Re-open them with a reason.
   body.** Under postponed evaluation FastAPI cannot resolve the body model
   through slowapi's decorator wrapper and silently downgrades it to a query
   parameter — every POST then answers 422. This cost a production outage once.
-- Rate limits are per IP: `10/hour` on model routes, `20/hour` on `/cv/parse`,
+- Rate limits are per IP: `30/hour` on model routes, `20/hour` on `/cv/parse`,
   `120/hour` by default, `/health` exempt. The counters live in one process's
   memory: correct for a single instance, wrong the moment there are two.
 - Do not hardcode secrets. Do not commit `.env`.
@@ -87,7 +87,7 @@ These were decided, not stumbled into. Re-open them with a reason.
 - Do not change public API contracts without updating `docs/api-contract.md`,
   including the "known limits" section.
 - Add or update tests when behavior changes. `.venv/bin/python -m pytest` runs
-  191 tests with no network and no key.
+  196 tests with no network and no key.
 
 ## AI rules
 

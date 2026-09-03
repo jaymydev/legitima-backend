@@ -24,9 +24,21 @@ from app.observability.logging import logger
 #: appears a handful of times after a deploy rather than on every request.
 _reported_chain_lengths: set[int] = set()
 
-#: Calls that cost an OpenAI completion. Generous for someone iterating on
-#: their own career text, ruinous for nobody.
-AI_GENERATION_LIMIT = "10/hour"
+#: Calls that cost an OpenAI completion.
+#:
+#: This was `10/hour`, which is about one person's own pace — the one place a
+#: limit should not sit. It did not reach who it was written for: the leading
+#: `X-Forwarded-For` entry is forgeable, so a loop mints a fresh bucket per
+#: request, which a test pins as a known weakness. It did reach people it was
+#: never aimed at — someone trying several of the six interview types, and
+#: everyone behind one shared exit IP, an office or a carrier's NAT, who all
+#: count against a single bucket.
+#:
+#: `30/hour` keeps the stated job of stopping an unsophisticated loop, two
+#: orders of magnitude below one, while clearing any human pace. Against a
+#: determined caller the backstop is the monthly spend cap on the OpenAI
+#: account, not this module.
+AI_GENERATION_LIMIT = "30/hour"
 
 #: OCR costs CPU rather than tokens, and a real user imports a CV once or
 #: twice. This mostly keeps a single client from occupying the worker.

@@ -27,10 +27,10 @@ The full request and response contract is in
 | Route | Does | Limit |
 | --- | --- | --- |
 | `GET /v3/interview/bank` | the questions to prepare, from the hand-written bank | 120/hour |
-| `POST /v3/interview/questions` | the same, personalised by the model | 10/hour |
+| `POST /v3/interview/questions` | the same, personalised by the model | 30/hour |
 | `POST /cv/parse` | experience extraction from a PDF or a photo | 20/hour |
-| `POST /analyze` | strategic reading of a career path — **no client left** | 10/hour |
-| `POST /v2/interview-preparation/*` | the previous guided preparation — **no client left** | 10/hour |
+| `POST /analyze` | strategic reading of a career path — **no client left** | 30/hour |
+| `POST /v2/interview-preparation/*` | the previous guided preparation — **no client left** | 30/hour |
 
 `GET /v3/interview/bank` is the main path and it makes **no model call**: it
 answers instantly, costs nothing, and works for someone who has typed nothing.
