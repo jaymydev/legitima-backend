@@ -7,13 +7,16 @@ break silently with an ordinary-looking change:
   1. every handler that spends OpenAI tokens is rate limited;
   2. nothing internal — API keys, prompts, upstream error text — reaches the
      caller in an error body;
-  3. no secret is committed.
+  3. no secret is committed;
+  4. no model call asks OpenAI to store what it was sent, which is what the
+     App Store privacy label rests on.
 
 These are cheap to assert and expensive to discover in the wild.
 """
 
 from __future__ import annotations
 
+import ast
 import inspect
 import re
 import subprocess
@@ -246,3 +249,52 @@ def test_the_limits_are_the_documented_ones() -> None:
     assert "30 / hour" in contract
     assert "20 / hour" in contract
     assert "120 / hour" in contract
+
+
+def _model_calls(tree: ast.AST):
+    """Every `…completions.create(…)` / `…responses.create(…)` in a module."""
+    for node in ast.walk(tree):
+        if not isinstance(node, ast.Call):
+            continue
+        func = node.func
+        if not isinstance(func, ast.Attribute) or func.attr != "create":
+            continue
+        owner = func.value
+        if isinstance(owner, ast.Attribute) and owner.attr in {"completions", "responses"}:
+            yield node
+
+
+def test_every_model_call_opts_out_of_storage() -> None:
+    """The App Store privacy label claims "Data not collected".
+
+    That claim rests on nothing being retained anywhere. This backend keeps no
+    database and logs the shape of a request rather than its content, so the
+    only place a CV could come to rest is OpenAI's side.
+
+    `store` decides that, and its default cannot be relied on: it is `false`
+    on chat completions but `true` on the Responses API. A migration between
+    the two — or a change of default — would start retaining CVs with no
+    diff to review and no error to notice. So it is written at every call
+    site, and read back here.
+
+    Asserted against the source rather than by calling: a test that exercised
+    the client would only cover the paths it happened to walk.
+    """
+    offenders = []
+
+    for path in sorted((REPO_ROOT / "app").rglob("*.py")):
+        tree = ast.parse(path.read_text(encoding="utf-8"))
+        for call in _model_calls(tree):
+            stored = [k for k in call.keywords if k.arg == "store"]
+            location = f"{path.relative_to(REPO_ROOT)}:{call.lineno}"
+            if not stored:
+                offenders.append(f"{location} does not pass store")
+            elif not (
+                isinstance(stored[0].value, ast.Constant)
+                and stored[0].value.value is False
+            ):
+                offenders.append(f"{location} passes store but not a literal False")
+
+    assert not offenders, "model calls that may retain a CV upstream:\n" + "\n".join(
+        offenders
+    )

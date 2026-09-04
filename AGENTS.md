@@ -83,11 +83,17 @@ These were decided, not stumbled into. Re-open them with a reason.
 - Do not hardcode secrets. Do not commit `.env`.
 - Do not log personal user data — logs record the shape of a request, never its
   content, and a test enforces it.
+- **Every model call passes `store=False`.** The App Store privacy label claims
+  "Data not collected", and this backend keeps no database, so OpenAI is the
+  only place a CV could come to rest. The default is `false` on chat
+  completions but `true` on the Responses API: a migration between the two
+  would start retaining CVs with nothing in the diff to notice. It is written
+  at every call site, and a test reads them all back.
 - Do not add dependencies without justification.
 - Do not change public API contracts without updating `docs/api-contract.md`,
   including the "known limits" section.
 - Add or update tests when behavior changes. `.venv/bin/python -m pytest` runs
-  196 tests with no network and no key.
+  197 tests with no network and no key.
 
 ## AI rules
 

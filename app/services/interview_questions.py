@@ -557,6 +557,8 @@ def verify_grounding(
     try:
         completion = client.chat.completions.create(
             model=INTERVIEW_QUESTIONS_MODEL,
+            # The App Store privacy label rests on this: never retained upstream.
+            store=False,
             response_format={"type": "json_object"},
             messages=[
                 {"role": "user", "content": build_grounding_prompt(material, prepared)}
@@ -606,6 +608,7 @@ def generate_prepared_interview(
     usable = experiences[: definition.experience_limit] if definition.experience_limit else []
     completion = client.chat.completions.create(
         model=INTERVIEW_QUESTIONS_MODEL,
+        store=False,
         response_format={"type": "json_object"},
         messages=[
             {
