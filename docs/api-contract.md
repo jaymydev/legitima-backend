@@ -200,7 +200,10 @@ in an answer without it ever reaching the server.
 `action_plan` is the "before entering" block, hand-written per interview type,
 read as-is with five minutes and a corridor: one to three gestures, no slots.
 When a personalised preparation exists, its own `action_plan` — more specific —
-replaces this one on the client. An unknown `use_case_id` answers `404`
+replaces this one on the client. That personalised plan is checked for French
+before it is served: a drift buys one retry, and a plan still not French is
+replaced server-side by this hand-written one, so a client never has to
+recognise English. An unknown `use_case_id` answers `404`
 `unknown_use_case`.
 
 A `metier` is honoured only for the three interviews that assess a skill for a

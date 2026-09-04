@@ -24,7 +24,9 @@ from openai import OpenAI
 from pydantic import BaseModel, ConfigDict, Field
 
 from app.observability.logging import logger
+from app.services.french_quality import is_french
 from app.services.interview_preparation import InterviewQuestion, InterviewUseCase
+from app.services.question_bank import ACTION_PLANS
 
 INTERVIEW_QUESTIONS_MODEL = "gpt-4o-mini"
 
@@ -598,24 +600,45 @@ def verify_grounding(
     return prepared.model_copy(update={"questions": questions})
 
 
-def generate_prepared_interview(
+#: Prepended when the first answer came back in English. Written in English on
+#: purpose: an instruction about language lands harder in the language being
+#: corrected away from, and this is the wording `/analyze` already used.
+FRENCH_RETRY_INSTRUCTION = """
+The previous answer was not written in French.
+
+Return the same JSON structure again. Every value must be written strictly in
+French, with correct accents. Do not include English sentences. Do not change
+the schema and do not add fields.
+"""
+
+
+def _all_written_text(prepared: PreparedInterview) -> list[str]:
+    """Every string the person will read, the plan included."""
+    texts = [prepared.title, *prepared.action_plan]
+    for question in prepared.questions:
+        texts += [question.question, question.intent, question.answer]
+    return texts
+
+
+def _request_page(
     client: OpenAI,
     definition: UseCaseDefinition,
     answers: dict[str, str],
     experiences: list[CVExperience],
-    cv_text: str = "",
+    cv_text: str,
+    retry_for_french: bool = False,
 ) -> PreparedInterview:
-    usable = experiences[: definition.experience_limit] if definition.experience_limit else []
+    messages: list[dict[str, str]] = [
+        {"role": "user", "content": build_prompt(definition, answers, experiences, cv_text)}
+    ]
+    if retry_for_french:
+        messages.insert(0, {"role": "system", "content": FRENCH_RETRY_INSTRUCTION})
+
     completion = client.chat.completions.create(
         model=INTERVIEW_QUESTIONS_MODEL,
         store=False,
         response_format={"type": "json_object"},
-        messages=[
-            {
-                "role": "user",
-                "content": build_prompt(definition, answers, experiences, cv_text),
-            }
-        ],
+        messages=messages,
     )
 
     content = completion.choices[0].message.content if completion.choices else None
@@ -625,6 +648,43 @@ def generate_prepared_interview(
     prepared = PreparedInterview.model_validate_json(content)
     if prepared.use_case_id != definition.catalog.id:
         raise ValueError("OpenAI response use_case_id does not match request")
+    return prepared
+
+
+def generate_prepared_interview(
+    client: OpenAI,
+    definition: UseCaseDefinition,
+    answers: dict[str, str],
+    experiences: list[CVExperience],
+    cv_text: str = "",
+) -> PreparedInterview:
+    usable = experiences[: definition.experience_limit] if definition.experience_limit else []
+    prepared = _request_page(client, definition, answers, experiences, cv_text)
+
+    # The prompt asks for French. Asking is not checking: on 4 September 2026 a
+    # page shipped with its whole plan in English, and reached the PDF someone
+    # carries into the room.
+    if not all(is_french(text) for text in _all_written_text(prepared)):
+        logger.warning(
+            "Interview questions drifted from French use_case_id=%s attempt=initial",
+            definition.catalog.id,
+        )
+        prepared = _request_page(
+            client, definition, answers, experiences, cv_text, retry_for_french=True
+        )
+
+    # One retry, then the known good. The bank's plan for this type is written
+    # by hand, always French, and is what the person would have had without
+    # personalising at all — so the degradation goes towards it, never towards
+    # a third generation and never towards English.
+    if not all(is_french(line) for line in prepared.action_plan):
+        fallback = ACTION_PLANS.get(definition.catalog.id, [])[:MAX_ACTION_PLAN_ITEMS]
+        if fallback:
+            logger.warning(
+                "Interview questions kept a non-French plan use_case_id=%s reason=fell_back_to_bank",
+                definition.catalog.id,
+            )
+            prepared = prepared.model_copy(update={"action_plan": fallback})
 
     material = "\n".join(
         [answers.get(question.id, "") for question in definition.catalog.questions
