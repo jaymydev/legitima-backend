@@ -89,11 +89,19 @@ These were decided, not stumbled into. Re-open them with a reason.
   completions but `true` on the Responses API: a migration between the two
   would start retaining CVs with nothing in the diff to notice. It is written
   at every call site, and a test reads them all back.
+- **French output is checked, not merely asked for.** The prompts say
+  "réponds uniquement en français"; on 4 September 2026 a whole "Avant
+  d'entrer" plan shipped in English anyway, on screen and in the exported PDF.
+  `app/services/french_quality.py` reads the generated page back: English
+  markers, French words missing their accents, and — the rule that catches
+  what enumerating English misses — a long line holding no French function
+  word at all. A drift costs one retry, then the plan falls back to the bank's
+  hand-written one, which always exists and is always French.
 - Do not add dependencies without justification.
 - Do not change public API contracts without updating `docs/api-contract.md`,
   including the "known limits" section.
 - Add or update tests when behavior changes. `.venv/bin/python -m pytest` runs
-  197 tests with no network and no key.
+  200 tests with no network and no key.
 
 ## AI rules
 

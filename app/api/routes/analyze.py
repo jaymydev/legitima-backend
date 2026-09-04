@@ -17,6 +17,12 @@ from app.api.errors import (
 )
 from app.api.rate_limit import AI_GENERATION_LIMIT, limiter
 from app.observability.logging import logger
+from app.services.french_quality import (
+    ENGLISH_MARKERS,
+    REQUIRED_FRENCH_ACCENTS,
+    contains_english_markers as _contains_english_markers,
+    contains_missing_required_accents as _contains_missing_required_accents,
+)
 
 router = APIRouter()
 
@@ -150,44 +156,6 @@ Do not add fields.
 Do not remove fields.
 """
 
-ENGLISH_MARKERS = (
-    "the",
-    "and",
-    "with",
-    "for",
-    "strong",
-    "skills",
-    "experience",
-    "interview",
-    "candidate",
-    "role",
-    "leadership",
-    "career",
-    "technical",
-    "summary",
-    "narrative",
-    "positioning",
-    "alignment",
-    "core",
-    "thread",
-)
-
-REQUIRED_FRENCH_ACCENTS = {
-    "experimente": "expérimenté",
-    "experimentee": "expérimentée",
-    "experimentees": "expérimentées",
-    "experimentes": "expérimentés",
-    "developpement": "développement",
-    "developpeur": "développeur",
-    "developpeuse": "développeuse",
-    "coherent": "cohérent",
-    "coherente": "cohérente",
-    "coherents": "cohérents",
-    "coherentes": "cohérentes",
-    "competences": "compétences",
-    "experience": "expérience",
-}
-
 ANALYZE_MODEL = "gpt-4o-mini"
 
 
@@ -309,21 +277,10 @@ def _iter_response_strings(response: AnalyzeResponseV1) -> Iterable[str]:
             yield value
 
 
-def _contains_english_markers(text: str) -> bool:
-    lowered = text.lower()
-    matches = sum(1 for marker in ENGLISH_MARKERS if re.search(rf"\b{re.escape(marker)}\b", lowered))
-    return matches >= 2
-
-
 def _strip_accents(value: str) -> str:
     return "".join(
         char for char in unicodedata.normalize("NFD", value) if unicodedata.category(char) != "Mn"
     )
-
-
-def _contains_missing_required_accents(text: str) -> bool:
-    lowered = text.lower()
-    return any(re.search(rf"\b{re.escape(word)}\b", lowered) for word in REQUIRED_FRENCH_ACCENTS)
 
 
 def _normalize_for_duplicate_check(text: str) -> str:
