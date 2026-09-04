@@ -1184,7 +1184,7 @@ METIER_COMPTA: list[BankEntry] = [
     BankEntry(
         id='quels_sont_les_pieges_courants_en',
         question='Quels sont les pièges courants en TVA ?',
-        answer="« L'autoliquidation quand on ne l'attend pas, la TVA sur encaissement pour les prestations de services contre la TVA sur débit pour les biens, et la déductibilité partielle sur certaines dépenses. »",
+        answer="« L'autoliquidation quand on ne l'attend pas, l'exigibilité — à la livraison pour les biens, à l'encaissement pour les services, sauf option pour les débits — et la déductibilité partielle sur certaines dépenses. »",
         avoid="ne prétendez pas maîtriser l'international si ce n'est pas le cas. La question suivante ira là.",
     ),
     BankEntry(
@@ -1250,7 +1250,7 @@ METIER_COMPTA: list[BankEntry] = [
     BankEntry(
         id='qu_est_ce_que_la_liasse',
         question="Qu'est-ce que la liasse fiscale, concrètement ?",
-        answer="« L'ensemble des tableaux transmis à l'administration à partir des comptes annuels : bilan, compte de résultat et annexes normalisées. En pratique le travail est dans le passage du résultat comptable au résultat fiscal — les réintégrations et déductions. »",
+        answer="« L'ensemble des tableaux transmis à l'administration à partir des comptes annuels : bilan, compte de résultat et tableaux annexes normalisés. En pratique le travail est dans le passage du résultat comptable au résultat fiscal — les réintégrations et déductions. »",
         avoid="ne vous limitez pas à la définition. C'est le passage comptable/fiscal qui est évalué.",
     ),
 ]
