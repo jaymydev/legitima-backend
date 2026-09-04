@@ -432,6 +432,8 @@ Contexte déjà collecté avant le premium, à réutiliser sans le redemander :
 """
     completion = client.chat.completions.create(
         model=INTERVIEW_PREPARATION_MODEL,
+        # The App Store privacy label rests on this: never retained upstream.
+        store=False,
         messages=[{"role": "system", "content": prompt}],
         response_format={"type": "json_object"},
     )
@@ -515,6 +517,7 @@ Contexte disponible :
 """
     completion = client.chat.completions.create(
         model=INTERVIEW_PREPARATION_MODEL,
+        store=False,
         messages=[{"role": "system", "content": prompt}],
         response_format={"type": "json_object"},
     )

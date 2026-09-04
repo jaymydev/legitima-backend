@@ -375,6 +375,8 @@ def _generate_analysis(
     try:
         completion = client.chat.completions.create(
             model=ANALYZE_MODEL,
+            # The App Store privacy label rests on this: never retained upstream.
+            store=False,
             messages=_build_messages(payload, retry_for_french=retry_for_french),
             response_format={"type": "json_object"},
         )
