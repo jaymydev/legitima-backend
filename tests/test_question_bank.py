@@ -329,3 +329,87 @@ def test_the_catalog_says_where_a_metier_applies() -> None:
 
     assert payload["applies_to"] == sorted(selection.TYPES_EVALUATION)
     assert set(payload["applies_to"]) <= set(selection.PLANS)
+
+
+def test_no_answer_names_a_reference_without_warning_her() -> None:
+    """Nommer un tiers en entretien, c'est autoriser un appel qu'il n'a pas accepté.
+
+    La banque posait déjà la règle dans « Pouvons-nous contacter vos
+    références ? » — « ne donnez jamais une référence sans l'avoir prévenue » —
+    mais « Pourquoi devrais-je vous croire ? » faisait donner un prénom et une
+    entreprise sous la pression, sans rien rappeler. Une banque qui se
+    contredit d'une entrée à l'autre ne protège pas.
+
+    L'invariant vaut pour les 300 entrées : qui fait citer <PRÉNOM> doit dire
+    dans la même fiche qu'on prévient la personne. Le radical cherché est
+    « préven » / « prévien », pour attraper aussi bien « je le préviens » que
+    « j'ai prévenu » et « sans l'avoir prévenue ».
+    """
+    fautifs = []
+    for entry in ALL_ENTRIES:
+        if "<PRÉNOM>" not in (entry.answer or ""):
+            continue
+        fiche = " ".join([entry.answer or "", entry.follow_up or "", entry.avoid or ""])
+        dit = fiche.lower()
+        if "préven" not in dit and "prévien" not in dit:
+            fautifs.append(entry.id)
+    assert not fautifs, f"référence nommée sans consigne de prévenir : {fautifs}"
+
+
+def test_every_displaced_question_offers_a_next_move() -> None:
+    """Sur une question déplacée, la relance est la règle, pas l'exception.
+
+    Une esquive sans suite laisse la personne sans rien à dire quand la
+    question revient — et elle revient. Huit fiches sur quatorze n'avaient
+    aucun `follow_up`.
+    """
+    muettes = [entry.id for entry in bank.DEPLACEES if not (entry.follow_up or "").strip()]
+    assert not muettes, f"question déplacée sans suite : {muettes}"
+
+
+def test_the_children_question_promises_nothing_about_availability() -> None:
+    """Promettre que ça n'affectera pas sa disponibilité, c'est concéder la prémisse.
+
+    La réponse admettait qu'un enfant *pourrait* peser sur la disponibilité,
+    au nom de la personne, et l'engageait sur un avenir qu'elle ne connaît
+    pas. Le recentrage doit renvoyer la précision au recruteur, sans rien
+    promettre.
+    """
+    fiche = next(e for e in bank.DEPLACEES if e.id == "vous_comptez_avoir_des_enfants")
+    assert "disponibilité" not in fiche.answer.lower(), fiche.answer
+
+
+def test_the_sick_leave_answer_asserts_no_fact_about_health() -> None:
+    """« C'est réglé » fait mentir qui a une affection chronique.
+
+    Une esquive doit permettre de ne rien dire. Celle-ci obligeait à affirmer
+    un fait, et ce fait peut être faux — ce qui expose bien plus que le
+    silence. Le médecin du travail est la sortie exacte : il ne nie rien,
+    n'affirme rien, et désigne le seul interlocuteur compétent sur l'aptitude.
+    """
+    fiche = next(e for e in bank.DEPLACEES if e.id == "vous_avez_eu_un_arret_maladie")
+    assert "réglé" not in fiche.answer.lower(), fiche.answer
+    assert "médecin du travail" in fiche.answer.lower(), fiche.answer
+
+
+def test_a_licit_hiring_objection_is_not_filed_as_displaced() -> None:
+    """« Trop qualifié » n'est pas une question déplacée, c'est une remarque licite.
+
+    La crainte d'un départ rapide a un lien direct avec l'emploi proposé. Les
+    ranger parmi les questions déplacées occupait des créneaux dans une liste
+    dont une seule entrée est servie par page, et laissait croire à la
+    personne qu'on venait de sortir du cadre légal.
+
+    Elles vont dans RECRUTEMENT, pas dans SITUATIONS : SITUATIONS est servie
+    dans les six types, et « vous êtes trop qualifié pour ce poste » n'a rien
+    à faire dans un entretien annuel.
+    """
+    licites = {
+        "vous_etes_trop_qualifie_pour_ce",
+        "vous_etes_bien_jeune_pour_ce",
+        "pourquoi_devrais_je_vous_croire",
+    }
+    deplacees = {entry.id for entry in bank.DEPLACEES}
+    recrutement = {entry.id for entry in bank.RECRUTEMENT}
+    assert not (licites & deplacees), f"encore dans DEPLACEES : {licites & deplacees}"
+    assert licites <= recrutement, f"absentes de RECRUTEMENT : {licites - recrutement}"
